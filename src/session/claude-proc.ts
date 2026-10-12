@@ -45,6 +45,7 @@ export interface ClaudeProcOpts {
   permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
   // Optional `--model` override; absent means claude's configured default.
   model?: 'sonnet' | 'opus' | 'haiku' | 'fable';
+  appendSystemPrompt?: string;
   onMessage: (msg: unknown) => void;
   onError: (msg: string) => void;
   onExit: (code: number | null) => void;
@@ -65,6 +66,7 @@ export class ClaudeProc {
 
     const permissionArgs = opts.permissionMode ? ['--permission-mode', opts.permissionMode] : [];
     const modelArgs = opts.model ? ['--model', opts.model] : [];
+    const promptArgs = opts.appendSystemPrompt ? ['--append-system-prompt', opts.appendSystemPrompt] : [];
     this.proc = spawn(
       resolveClaudeBin(),
       [
@@ -78,6 +80,7 @@ export class ClaudeProc {
         '--mcp-config', opts.mcpConfigPath,
         ...permissionArgs,
         ...modelArgs,
+        ...promptArgs,
         ...sessionArgs,
       ],
       {

@@ -121,7 +121,7 @@ describe('POST /api/work/jobs/:id/steps/:stepId/message — terminated jobs', ()
       jobQueue: h.queue, engine: h.engine,
       prWatcher: {} as never,
       prFilePatches: {} as never, scheduler: {} as never, sessionStore: {} as never,
-      worktreeManager: {} as never, jobsDir: h.jobsDir, interactive: new InteractiveStore(),
+      worktreeManager: {} as never, projectRegistry: {} as never, jobsDir: h.jobsDir, interactive: new InteractiveStore(),
     });
     await server.listen();
 
@@ -140,7 +140,7 @@ describe('POST /api/work/jobs/:id/steps/:stepId/message — terminated jobs', ()
       jobQueue: h.queue, engine: h.engine,
       prWatcher: {} as never,
       prFilePatches: {} as never, scheduler: {} as never, sessionStore: {} as never,
-      worktreeManager: {} as never, jobsDir: h.jobsDir, interactive: new InteractiveStore(),
+      worktreeManager: {} as never, projectRegistry: {} as never, jobsDir: h.jobsDir, interactive: new InteractiveStore(),
     });
     await server.listen();
 
@@ -220,7 +220,7 @@ describe('POST /api/work/jobs/:id/steps/:stepId/resolve — orchestrated steps',
       jobQueue: queue, engine,
       prWatcher: {} as never,
       prFilePatches: {} as never, scheduler: {} as never, sessionStore: {} as never,
-      worktreeManager: {} as never, jobsDir: join(dir, 'jobs'), interactive: new InteractiveStore(),
+      worktreeManager: {} as never, projectRegistry: {} as never, jobsDir: join(dir, 'jobs'), interactive: new InteractiveStore(),
     });
     await server.listen();
 
@@ -240,7 +240,7 @@ describe('POST /api/work/jobs/:id/steps/:stepId/resolve — orchestrated steps',
       jobQueue: h.queue, engine: h.engine,
       prWatcher: {} as never,
       prFilePatches: {} as never, scheduler: {} as never, sessionStore: {} as never,
-      worktreeManager: {} as never, jobsDir: h.jobsDir, interactive: new InteractiveStore(),
+      worktreeManager: {} as never, projectRegistry: {} as never, jobsDir: h.jobsDir, interactive: new InteractiveStore(),
     });
     await server.listen();
 

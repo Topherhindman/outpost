@@ -567,6 +567,17 @@ export class SessionStore {
     return env && typeof env === 'object' ? env as Record<string, string> : null;
   }
 
+  // Extra system prompt for a session the daemon seeded with context (a wait-step session).
+  // Persisted for the same reason as spawnEnv: every respawn, whoever triggers it, must carry it.
+  writeSystemPrompt(sessionId: string, text: string): void {
+    this.mergeSessionMeta(sessionId, { systemPrompt: text });
+  }
+
+  readSystemPrompt(id: string): string | null {
+    const text = this.readSessionMeta(id)?.systemPrompt;
+    return typeof text === 'string' ? text : null;
+  }
+
   // Both writers own their own keys of one shared sidecar, and the action stamp lands right
   // after the spawn — a whole-file write from either would drop the other's.
   private mergeSessionMeta(sessionId: string, fields: Record<string, unknown>): void {

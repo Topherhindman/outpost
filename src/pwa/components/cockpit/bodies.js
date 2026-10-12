@@ -15,6 +15,7 @@ import { renderWriteDraft, wireWriteDraft } from '../work/write-draft-card.js';
 import { stepDotState } from '../work/ticket-row.js';
 import { actionCategory, actionDisplayName } from '../work/action-icon.js';
 import { openAddStepDialog } from '../work/add-step-dialog.js';
+import { waitSessionLabel, openWaitStepSession } from '../work/wait-session.js';
 import { mountSessionView } from '../session-view/index.js';
 import { sessionsApi } from '../../net/sessions.js';
 import { wireAutogrow } from '../../utils/autogrow.js';
@@ -45,9 +46,11 @@ const ACTION_HTML = {
       </div>`;
   },
   wait(job, a) {
+    const sessionLabel = waitSessionLabel(job, stepOf(job, a.stepId));
     return `<div class="ckb-tl-sub">${escapeHtml(a.reason || 'Holding until you resume.')}</div>
       <div class="ckb-body-actions">
         <button type="button" class="o-btn o-btn--primary" data-ckb-body="resume-wait" data-step-id="${escapeHtml(a.stepId)}">Resume</button>
+        ${sessionLabel ? `<button type="button" class="o-btn o-btn--default" data-ckb-body="wait-session" data-step-id="${escapeHtml(a.stepId)}">${escapeHtml(sessionLabel)}</button>` : ''}
         <button type="button" class="o-btn o-btn--danger" data-ckb-body="abandon">Abandon job</button>
       </div>`;
   },
@@ -132,6 +135,7 @@ function wireBodyButtons(el, job) {
       else if (kind === 'retry') void (stepId ? work.retryStep(job.id, stepId) : work.rerunLatest(job.id));
       else if (kind === 'edit-step') { const s = stepOf(job, stepId); if (s) openAddStepDialog(job.id, { editStep: s }); }
       else if (kind === 'resume-wait') void work.approve(job.id, { gate: 'wait', stepId });
+      else if (kind === 'wait-session') { const s = stepOf(job, stepId); if (s) openWaitStepSession(job, s); }
       else if (kind === 'abandon') { if (confirm('Abandon this job? Active sessions will be closed and worktrees archived.')) void work.abandon(job.id); }
       else if (kind === 'resume-stalled') void work.resumeStalled(job.id);
       else if (kind === 'sign-in') nav.select('settings', 'claude-account');

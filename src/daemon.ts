@@ -489,6 +489,7 @@ async function main() {
     actionRegistry,
     governor: launchGovernor,
     writeActionMeta: (id, meta) => sessionStore.writeActionMeta(id, meta),
+    writeSystemPrompt: (id, text) => sessionStore.writeSystemPrompt(id, text),
     preapprovalDefaults: () => preferencesStore.getPreapprovalDefaults(),
     prReviewers: () => preferencesStore.getPrReviewers(),
     onDraftVerdict: (jobId, stepId, detail) => actionRunLedger.noteVerdict(jobId, stepId, detail),
@@ -1154,7 +1155,7 @@ async function main() {
   });
   registerGitRoutes(server, { sessionStore, worktreeManager, engine, prWatcher, preferencesStore, jobQueue });
   registerProjectsRoutes(server, { sessionStore, projectRegistry });
-  registerJobsRoutes(server, { jobQueue, engine, prWatcher, prFilePatches, scheduler, sessionStore, worktreeManager, jobsDir: join(RUNTIME_DIR, 'jobs'), interactive });
+  registerJobsRoutes(server, { jobQueue, engine, prWatcher, prFilePatches, scheduler, sessionStore, worktreeManager, projectRegistry, jobsDir: join(RUNTIME_DIR, 'jobs'), interactive });
   registerPushRoutes(server, { pushStore, pushSender, userPrsWatcher });
   registerMetaRoutes(server, {
     actionRegistry, permissionGroups, allowlist, allowlistPath: ALLOWLIST_PATH, projectAllowlistDir,

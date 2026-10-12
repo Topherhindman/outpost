@@ -169,6 +169,10 @@ export interface ActionStep extends StepBase {
   state: 'running' | 'waiting' | 'gate_pending_approval' | 'resolved' | 'failed' | 'declined';
   // Epoch ms when a timed meta.wait auto-resumes. Unset for an indefinite manual hold.
   resumeAt?: number;
+  // A meta.wait's user-driven session. Not `sessionId`, which every step path reads as the
+  // action's own session. The cwd is kept because a session with no turn yet has no transcript
+  // for a later attach to find it by.
+  manualSession?: { id: string; cwd: string };
 }
 
 export interface Dispatch {

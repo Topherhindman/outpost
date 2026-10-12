@@ -9,6 +9,9 @@ import type { Scheduler } from '../schedules/scheduler.js';
 import type { SessionStore } from '../session/session-store.js';
 import type { InteractiveStore } from '../session/interactive-store.js';
 import type { WorktreeManager } from '../git/worktree-manager.js';
+import type { ProjectRegistry } from '../storage/project-registry.js';
+import { isKnownCwd } from '../git/known-cwd.js';
+import { WaitSessionError } from '../work/engine.js';
 import { readJsonBody, readJsonObject } from './util.js';
 import { serializeJob } from '../work/job-liveness.js';
 import { readJobEvents } from '../storage/job-event-log.js';
@@ -26,6 +29,7 @@ export interface JobsRoutesDeps {
   scheduler: Scheduler;
   sessionStore: SessionStore;
   worktreeManager: WorktreeManager;
+  projectRegistry: ProjectRegistry;
   jobsDir: string;
   interactive: InteractiveStore;
 }
@@ -110,7 +114,7 @@ async function handleDraftDecision(
 }
 
 export function registerJobsRoutes(server: Server, deps: JobsRoutesDeps): void {
-  const { jobQueue, engine, prWatcher, prFilePatches, scheduler, sessionStore, worktreeManager, jobsDir, interactive } = deps;
+  const { jobQueue, engine, prWatcher, prFilePatches, scheduler, sessionStore, worktreeManager, projectRegistry, jobsDir, interactive } = deps;
 
   const serialize = (j: JobRecord) =>
     serializeJob(j, (id) => engine.isSessionWorking(id), (job) => engine.launchStatusFor(job),
@@ -481,6 +485,29 @@ export function registerJobsRoutes(server: Server, deps: JobsRoutesDeps): void {
     res.statusCode = 200;
     res.setHeader('content-type', 'application/json');
     res.end(JSON.stringify({ job: jobQueue.get(m[1]!) ?? null }));
+  });
+
+  engagedRoute('POST', '/api/work/jobs/:id/steps/:stepId/wait-session', async (req, res) => {
+    const m = (req.url ?? '').match(/^\/api\/work\/jobs\/([\w-]+)\/steps\/([\w-]+)\/wait-session$/);
+    if (!m) { res.statusCode = 404; res.end('not found'); return; }
+    const payload = await readJsonObject<{ cwd?: unknown }>(req, res);
+    if (!payload) return;
+    let cwd: string | undefined;
+    if (payload.cwd !== undefined) {
+      if (typeof payload.cwd !== 'string' || !isKnownCwd(payload.cwd, projectRegistry, worktreeManager)) {
+        res.statusCode = 400; res.end('cwd must be a registered project or tracked worktree'); return;
+      }
+      cwd = payload.cwd;
+    }
+    try {
+      const opened = await engine.openWaitSession(m[1]!, m[2]!, cwd);
+      res.statusCode = 200;
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify(opened));
+    } catch (e) {
+      res.statusCode = e instanceof WaitSessionError ? e.status : 500;
+      res.end((e as Error).message);
+    }
   });
 
   server.route('PUT', '/api/work/jobs/:id/steps/:stepId/preapprovals', async (req, res) => {

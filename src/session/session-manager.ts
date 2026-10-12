@@ -380,6 +380,7 @@ export class SessionManager {
     const mode = this.opts.sessionStore.findSession(sessionId) ? 'resume' : 'new';
     const permissionMode = this.permissionModes.get(sessionId);
     const model = this.sessionModels.get(sessionId);
+    const systemPrompt = this.opts.sessionStore.readSystemPrompt(sessionId);
     s.proc = new ClaudeProc({
       sessionId,
       mode,
@@ -389,6 +390,7 @@ export class SessionManager {
       env: { DAEMON_AUTH: this.opts.daemonAuthSecret, DAEMON_HOST: this.opts.daemonHost, OUTPOST_HOOK_PORT: String(this.opts.hookPort), ...env },
       ...(permissionMode ? { permissionMode } : {}),
       ...(model ? { model } : {}),
+      ...(systemPrompt ? { appendSystemPrompt: systemPrompt } : {}),
       onMessage: (msg) => {
         s.lastActivity = Date.now();
         this.handleProcInit(s, msg);

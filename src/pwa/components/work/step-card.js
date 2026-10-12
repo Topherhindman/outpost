@@ -10,6 +10,7 @@ import { isTerminalStep, hasUnapprovedDraft, draftAwaitsUser } from '../../vm/wo
 import { shortName } from '../../utils/formatting.js';
 import { stepFeedHtml } from './wheel-toggle.js';
 import { sessionsApi } from '../../net/sessions.js';
+import { waitSessionLabel, openWaitStepSession } from './wait-session.js';
 
 function escapeHtml(s) { return String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
 
@@ -110,16 +111,18 @@ function attemptsHtml(s) {
   return `<details class="tl-attempts"><summary class="tl-attempts-sum">${label}</summary>${rows}</details>`;
 }
 
-function actionFor(s) {
+function actionFor(job, s) {
   if (s.failure) return retryComposerHtml();
-  if (s.cancelled) return '';
+  if (s.cancelled) return waitSessionButton(job, s);
   // An orchestrated step's affordances (gate, message, mark-resolved) all live in its
   // own card, which owns the wiring too.
   if (s.type === 'orchestrated') return '';
   // meta.wait hold: let the user release it early (timed) or at all (indefinite).
   if (s.type === 'action' && s.state === 'waiting') {
-    return `<button class="o-btn o-btn--primary" data-step-action="resume">Resume now</button>`;
+    return `<button class="o-btn o-btn--primary" data-step-action="resume">Resume now</button>`
+      + waitSessionButton(job, s);
   }
+  if (s.type === 'action' && s.action === 'meta.wait') return waitSessionButton(job, s);
   // human_gate: the drafted write itself renders via renderWriteDraft (draftsHtml below),
   // which carries its own Accept/Propose changes/Deny buttons — nothing to add here.
   // Resolve is a manual fallback for action steps whose session subprocess
@@ -198,6 +201,13 @@ function humanizeMs(ms) {
   const h = Math.floor(m / 60);
   const rem = m % 60;
   return rem ? `${h}h ${rem}m` : `${h}h`;
+}
+
+function waitSessionButton(job, s) {
+  const label = waitSessionLabel(job, s);
+  if (!label) return '';
+  const variant = s.state === 'waiting' ? 'o-btn--default' : 'o-btn--ghost';
+  return `<button class="o-btn ${variant}" data-step-action="wait-session">${escapeHtml(label)}</button>`;
 }
 
 // The hold block for a parked meta.wait step: the soak/manual timer, the reason it's
@@ -309,7 +319,7 @@ export function renderTimelineStep(job, s, index, groupPos, opts = {}) {
   // An orchestrated step's session mount is rendered by the card itself, so its composer can
   // sit directly under the transcript tail — see orchestrated-card.js's own header comment.
   const orchestrated = s.type === 'orchestrated';
-  const action = actionFor(s);
+  const action = actionFor(job, s);
   const foldable = stepIsFoldable(s);
   const folded = foldable && !expandedSteps.has(s.id);
   return `
@@ -345,6 +355,7 @@ export function wireTimelineStep(el, job, s) {
       else if (kind === 'resolve') void work.resolveStep(job.id, s.id);
       else if (kind === 'launch-now') void work.launchStep(job.id, s.id).catch((err) => alert(`Launch failed: ${err?.message ?? err}`));
       else if (kind === 'resume') void work.approve(job.id, { gate: 'wait', stepId: s.id });
+      else if (kind === 'wait-session') openWaitStepSession(job, s);
       else if (kind === 'retry') {
         const ta = el.querySelector('[data-composer="step-retry"] textarea');
         void work.retryStep(job.id, s.id, (ta?.value ?? '').trim() || undefined)

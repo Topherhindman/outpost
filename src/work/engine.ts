@@ -28,7 +28,8 @@ import type {
   SessionStall,
 } from './work-types.js';
 import { augmentEnvelopeWithLessons, buildActionCatalog, writeEnvelope, STEP_TYPE_CATALOG, type OrchestratorEnvelope, type ActionCatalogEntry, type CatalogScope } from './envelope.js';
-import { readonlyView, workspaceError } from './workspace.js';
+import { readonlyView, waitWorkspaceError, workspaceError } from './workspace.js';
+import { waitSessionContext } from './wait-session-context.js';
 import { expectRepoOf, parsePrUrl, PR_URL_RE } from './pr-url.js';
 import type { ActionRegistry } from '../actions/index.js';
 import { handlerFor, initialStateForType, isTerminalStep } from '../steps/index.js';
@@ -207,12 +208,18 @@ export interface WorkEngineOpts {
   // sessions list can label + title it without loading the transcript. Wired to
   // SessionStore.writeActionMeta in the daemon.
   writeActionMeta?: (sessionId: string, meta: { action: string; title: string }) => void;
+  // Persists the context a wait-step session is spawned with. Wired to SessionStore.writeSystemPrompt.
+  writeSystemPrompt?: (sessionId: string, text: string) => void;
   // Overrides UNRESOLVED_GRACE_MS (tests).
   unresolvedGraceMs?: number;
   runGh?: RunGh;
   preapprovalDefaults?: () => Preapprovals | undefined;
   prReviewers?: () => string[];
   onDraftVerdict?: (jobId: string, stepId: string, detail: DraftVerdictDetail) => void;
+}
+
+export class WaitSessionError extends Error {
+  constructor(readonly status: 400 | 404 | 409, message: string) { super(message); }
 }
 
 type SessionRole =
@@ -230,6 +237,7 @@ export class WorkEngine {
   // turn's Stop has landed), the trailing Stop belongs to that old round — not the new one.
   // consumeStaleTurnStop() lets the Stop handler drop it instead of failing the live step.
   private readonly owedStaleStops = new Map<string, number>();
+  private readonly waitSessionOpens = new Map<string, Promise<{ sessionId: string; cwd: string }>>();
   // Live soak timers for parked meta.wait steps, keyed `${jobId}:${stepId}`. Set when a
   // step enters a timed wait, cleared on resume/resolve/abandon, and rebuilt at boot by
   // reconcileWaits (setTimeout does not survive a daemon restart).
@@ -1037,6 +1045,8 @@ export class WorkEngine {
     if (j.orchestratorSessionId) sessionIds.add(j.orchestratorSessionId);
     for (const s of j.steps) {
       if (s.sessionId) sessionIds.add(s.sessionId);
+      // Its readonly worktree is archived below; a session left running would sit in a deleted cwd.
+      if (s.type === 'action' && s.manualSession) sessionIds.add(s.manualSession.id);
       // Dispatch children aren't in job.steps and don't carry a top-level sessionId —
       // without this a job abandoned/deleted mid-dispatch would leak their live sessions.
       if (s.type === 'orchestrated') {
@@ -1099,7 +1109,7 @@ export class WorkEngine {
     // can act on. Past the plan boundary it is unrecoverable: the step materializes, then fails
     // at provision on every dispatch and retry.
     proposed.forEach((p, i) => {
-      const err = workspaceError(p.workspace);
+      const err = workspaceError(p.workspace) ?? waitWorkspaceError(p.type === 'action' ? p.action : undefined, p.workspace);
       if (err) throw new Error(`step ${i + 1} ("${p.title}"): ${err}`);
     });
     // The summary is the plan's one always-visible line in the PWA. Checked here because the MCP
@@ -1497,6 +1507,45 @@ export class WorkEngine {
   // PWA "Resume" action on a parked meta.wait step.
   resumeWait(jobId: string, stepId: string, note?: string): void {
     this.resolveWaitStep(jobId, stepId, 'user', note?.trim() || undefined);
+  }
+
+  // The user's session on a meta.wait: created on the first open while the step is parked,
+  // returned as-is on every later one. Spawns nothing — the PWA's attach does, with this cwd.
+  async openWaitSession(jobId: string, stepId: string, cwd?: string): Promise<{ sessionId: string; cwd: string }> {
+    const key = `${jobId}:${stepId}`;
+    const inflight = this.waitSessionOpens.get(key);
+    if (inflight) return inflight;
+    const p = this.createWaitSession(jobId, stepId, cwd).finally(() => this.waitSessionOpens.delete(key));
+    this.waitSessionOpens.set(key, p);
+    return p;
+  }
+
+  private async createWaitSession(jobId: string, stepId: string, pickedCwd?: string): Promise<{ sessionId: string; cwd: string }> {
+    const step = this.opts.queue.get(jobId)?.steps.find((s) => s.id === stepId);
+    if (!step) throw new WaitSessionError(404, 'step not found');
+    if (step.type !== 'action' || step.action !== 'meta.wait') throw new WaitSessionError(409, 'not a meta.wait step');
+    if (step.manualSession) return { sessionId: step.manualSession.id, cwd: step.manualSession.cwd };
+    if (step.state !== 'waiting' || step.cancelled || step.failure) throw new WaitSessionError(409, 'the wait is not parked');
+
+    let cwd: string;
+    if (step.workspace.kind === 'none') {
+      if (!pickedCwd) throw new WaitSessionError(400, 'cwd required for a wait with no workspace');
+      cwd = pickedCwd;
+    } else {
+      const err = workspaceError(step.workspace) ?? waitWorkspaceError(step.action, step.workspace);
+      if (err) throw new WaitSessionError(409, err);
+      const ws = await this.opts.worktreeManager.provision(stepId, step.workspace);
+      if (!ws.path) throw new WaitSessionError(409, 'workspace provisioned no checkout');
+      cwd = ws.path;
+    }
+
+    const job = this.opts.queue.get(jobId)!;
+    const sessionId = this.ctx.newId();
+    this.opts.writeSystemPrompt?.(sessionId, waitSessionContext(job, stepId));
+    this.mutateStep(jobId, stepId, (s) => s.type === 'action'
+      ? { ...s, manualSession: { id: sessionId, cwd }, updatedAt: this.ctx.now() }
+      : s);
+    return { sessionId, cwd };
   }
 
   // Called once at daemon startup: soak timers don't survive a restart. Re-arm every
@@ -2637,6 +2686,9 @@ export class WorkEngine {
     // to protect. Cancel + insert a corrected step is the coherent recovery, and the message
     // says so. An unchanged workspace is not a repoint: the plan editor re-sends every field
     // it renders, so refusing on presence alone would re-lock the step it just unlocked.
+    const nextAction = step.type === 'action' ? patch.action ?? step.action : undefined;
+    const waitErr = waitWorkspaceError(nextAction, patch.workspace ?? step.workspace);
+    if (waitErr) throw new Error(waitErr);
     if (patch.workspace !== undefined) {
       const err = workspaceError(patch.workspace);
       if (err) throw new Error(err);
@@ -2965,7 +3017,7 @@ export class WorkEngine {
   private materialize(p: ProposedStep): Step {
     const id = this.ctx.newId();
     const now = this.ctx.now();
-    const wsErr = workspaceError(p.workspace);
+    const wsErr = workspaceError(p.workspace) ?? waitWorkspaceError(p.type === 'action' ? p.action : undefined, p.workspace);
     if (wsErr) throw new Error(wsErr);
     switch (p.type) {
       case 'action': {

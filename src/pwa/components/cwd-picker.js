@@ -30,7 +30,8 @@ export function initCwdPicker(deps) {
   _deps = { ..._deps, ...deps };
 }
 
-export function openCwdPickerSheet(initialError) {
+// `onPick` hands the chosen cwd to the caller instead of minting a new session.
+export function openCwdPickerSheet(initialError, { onPick } = {}) {
   dismissSoftKeyboard();
   closeCwdPickerSheet();
   const backdrop = document.createElement('div');
@@ -42,7 +43,7 @@ export function openCwdPickerSheet(initialError) {
   sheet.setAttribute('role', 'dialog');
   sheet.setAttribute('aria-modal', 'true');
   sheet.setAttribute('aria-label', 'Pick a directory');
-  sheet.innerHTML = cwdPickerBodyHtml(initialError);
+  sheet.innerHTML = cwdPickerBodyHtml(initialError, onPick ? 'Open session in…' : 'New session');
   document.body.appendChild(backdrop);
   document.body.appendChild(sheet);
   requestAnimationFrame(() => {
@@ -52,7 +53,7 @@ export function openCwdPickerSheet(initialError) {
   pinSheetBelowHeader(sheet);
   noteSheetOpen(closeCwdPickerSheet);
   makeSheetDismissible(sheet, closeCwdPickerSheet);
-  bindCwdPickerHandlers(sheet, backdrop);
+  bindCwdPickerHandlers(sheet, backdrop, onPick);
 }
 
 export function closeCwdPickerSheet() {
@@ -156,7 +157,7 @@ export function closeAddProjectSheet() {
   setTimeout(() => { backdrop?.remove(); sheet?.remove(); }, 360);
 }
 
-function cwdPickerBodyHtml(initialError) {
+function cwdPickerBodyHtml(initialError, title) {
   const projects = sessions.get().projects.filter((p) => !p.internal);
   const recents = projects.map((p) => {
     const basename = p.cwd.split('/').filter(Boolean).pop() || p.cwd;
@@ -179,7 +180,7 @@ function cwdPickerBodyHtml(initialError) {
   return `
     <div class="grabber"></div>
     <div class="header-row">
-      <span class="sheet-title">New session</span>
+      <span class="sheet-title">${escapeHtml(title)}</span>
       <button class="sheet-close" id="cwd-picker-sheet-close" aria-label="Close">✕</button>
     </div>
     ${errorBlock}
@@ -200,9 +201,12 @@ function cwdPickerBodyHtml(initialError) {
   `;
 }
 
-function bindCwdPickerHandlers(sheet, backdrop) {
+function bindCwdPickerHandlers(sheet, backdrop, onPick) {
+  const pick = onPick
+    ? (cwd) => { closeCwdPickerSheet(); onPick(cwd); }
+    : (cwd) => commitNewSessionCwd(cwd);
   for (const row of sheet.querySelectorAll('.cwd-picker-row')) {
-    row.onclick = () => commitNewSessionCwd(row.dataset.cwd);
+    row.onclick = () => pick(row.dataset.cwd);
   }
   const close = sheet.querySelector('#cwd-picker-sheet-close');
   if (close) close.onclick = () => closeCwdPickerSheet();
@@ -218,7 +222,7 @@ function bindCwdPickerHandlers(sheet, backdrop) {
     // the user has to type the absolute path themselves.
     const home = usage.get().daemonInfo?.home;
     const expanded = (home && raw.startsWith('~')) ? raw.replace(/^~/, home) : raw;
-    commitNewSessionCwd(expanded);
+    pick(expanded);
   };
   if (form) form.addEventListener('submit', submitCustom);
 }

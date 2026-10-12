@@ -76,7 +76,7 @@ async function startServer(h: ReturnType<typeof harness>): Promise<number> {
   registerJobsRoutes(server, {
     jobQueue: h.queue, engine: h.engine,
     prWatcher: {} as never, prFilePatches: {} as never, scheduler: {} as never, sessionStore: {} as never,
-    worktreeManager: {} as never, jobsDir: h.jobsDir,
+    worktreeManager: {} as never, projectRegistry: {} as never, jobsDir: h.jobsDir,
     interactive: new InteractiveStore(),
   });
   await server.listen();

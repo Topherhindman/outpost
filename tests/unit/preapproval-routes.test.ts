@@ -58,7 +58,7 @@ async function start() {
   server = new Server({ httpPort: port, heartbeatMs: 0 });
   registerJobsRoutes(server, {
     jobQueue: queue, engine, prWatcher: {} as never, prFilePatches: {} as never, scheduler: {} as never,
-    sessionStore: {} as never, worktreeManager: {} as never, jobsDir: join(dir, 'jobs'), interactive: new InteractiveStore(),
+    sessionStore: {} as never, worktreeManager: {} as never, projectRegistry: {} as never, jobsDir: join(dir, 'jobs'), interactive: new InteractiveStore(),
   });
   await server.listen();
   return { port, queue };

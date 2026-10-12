@@ -10,12 +10,12 @@ import { join } from 'node:path';
 // gate denial then resumed an already-live env-less proc, and the controller woke blind
 // (`printenv OUTPOST_ENVELOPE` → exit 1) and ended the turn without a move.
 
-const spawned: { sessionId: string; env: Record<string, string> }[] = [];
+const spawned: { sessionId: string; env: Record<string, string>; appendSystemPrompt?: string }[] = [];
 
 vi.mock('../../src/session/claude-proc.js', () => ({
   ClaudeProc: class {
-    constructor(opts: { sessionId: string; env: Record<string, string> }) {
-      spawned.push({ sessionId: opts.sessionId, env: opts.env });
+    constructor(opts: { sessionId: string; env: Record<string, string>; appendSystemPrompt?: string }) {
+      spawned.push({ sessionId: opts.sessionId, env: opts.env, appendSystemPrompt: opts.appendSystemPrompt });
     }
     send(): void {}
     interrupt(): void {}
@@ -102,5 +102,34 @@ describe('spawn env stickiness', () => {
     const { manager, cwd } = newManager();
     manager.attach('chat-1', fakeWs(), { cwd });
     expect(spawned[0]!.env.OUTPOST_ENVELOPE).toBeUndefined();
+  });
+});
+
+describe('system prompt stickiness', () => {
+  beforeEach(() => { spawned.length = 0; });
+
+  it('passes a persisted system prompt on the first attach and on a respawn after reap', async () => {
+    const { manager, store, cwd } = newManager();
+    store.writeSystemPrompt('wait-1', 'job context');
+
+    manager.attach('wait-1', fakeWs(), { cwd });
+    await manager.close('wait-1', 'idle');
+    manager.attach('wait-1', fakeWs(), { cwd });
+
+    expect(spawned.map((s) => s.appendSystemPrompt)).toEqual(['job context', 'job context']);
+  });
+
+  it('keeps the spawn env when the system prompt is written alongside it', () => {
+    const { manager, store, cwd } = newManager();
+    manager.spawnDetached('step-1', cwd, STEP_ENV);
+    store.writeSystemPrompt('step-1', 'ctx');
+    expect(store.readSpawnEnv('step-1')).toEqual(STEP_ENV);
+    expect(store.readSystemPrompt('step-1')).toBe('ctx');
+  });
+
+  it('passes no system prompt for a session that never had one', () => {
+    const { manager, cwd } = newManager();
+    manager.attach('chat-1', fakeWs(), { cwd });
+    expect(spawned[0]!.appendSystemPrompt).toBeUndefined();
   });
 });

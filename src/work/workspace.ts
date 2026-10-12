@@ -23,6 +23,15 @@ export function workspaceError(ws: WorkspaceRef | undefined): string | null {
   return null;
 }
 
+// A hold must never own a branch: its session is the user's, opened at will, and a writable
+// worktree would claim the branch from the step that ships it.
+export function waitWorkspaceError(action: string | undefined, ws: WorkspaceRef | undefined): string | null {
+  if (action === 'meta.wait' && ws?.kind === 'writable') {
+    return 'meta.wait takes a "readonly" or "none" workspace, never "writable"';
+  }
+  return null;
+}
+
 // A child session must never inherit a writable ref from its parent. Two worktrees can't hold
 // one branch: WorktreeManager.create() resolves that collision by `git worktree move`-ing the
 // existing checkout — the parent's own live worktree — into the child's slot, leaving the

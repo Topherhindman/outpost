@@ -1,6 +1,6 @@
 ---
 name: meta.wait
-description: Pause the job between steps until the user resumes — a hold/soak with an optional auto-resume timer. Use between deploy rings (let a canary bake, verify health, then continue) or before an irreversible write so the user can review a preview and resume or abandon. Builtin runner — no Claude session spawned.
+description: Pause the job between steps until the user resumes — a hold/soak with an optional auto-resume timer. Use between deploy rings (let a canary bake, verify health, then continue) or before an irreversible write so the user can review a preview and resume or abandon. Builtin runner — the daemon spawns no session, but the user can open one on the parked step to check on what it's waiting for.
 outpost:
   kind: action
   category: meta
@@ -27,4 +27,4 @@ Two shapes:
 
 Do NOT use `meta.wait` to *assess* something — "is staging healthy?" is `read.investigate`, which reads the metrics and produces a verdict. `meta.wait` is only the follow-up hold: "given those findings, resume when you're ready to promote." And never use it as a stand-in for real work — a "deploy" is an `orchestrated` PR step (the merge IS the deploy), not a wait.
 
-There is no Claude session spawned for this action.
+The daemon spawns no Claude session for this action. The user can open one from the parked step — an ordinary session under their own permissions, pre-loaded with the job, this wait's `reason`/`preview`, and the earlier steps' outputs — to check on a deploy or run a manual test. It opens in the step's `workspace`: give the wait a `readonly` workspace on the repo where that checking happens (the deploy-config repo at `origin/main`, the repo under test at the PR's branch), or `none` to have the user pick. Never `writable`.
