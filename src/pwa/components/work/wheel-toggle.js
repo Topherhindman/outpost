@@ -1,4 +1,5 @@
 import { escapeHtml } from '../session-view/html.js';
+import { inlineWaitSession } from './wait-session.js';
 
 // Is the user driving this session right now? Server-derived (job.live.interactiveSessionIds,
 // see src/work/job-liveness.ts) rather than client state, so every surface showing the job
@@ -21,6 +22,18 @@ export function wheelButtonHtml(sessionId, driven) {
 // the mount is the full session view and the way out rides in the frame's bar — .sv-header is
 // the only chrome inside that view that could hold it, and it's hidden on mobile.
 export function stepFeedHtml(job, s) {
+  const wait = inlineWaitSession(s);
+  if (wait) {
+    return `
+    <div class="step-drive">
+      <div class="step-drive-bar">
+        <span class="step-drive-label">Your session</span>
+        <button type="button" class="o-btn o-btn--ghost sm" data-step-action="wait-session">Open full ↗</button>
+      </div>
+      <div class="step-inline-session-mount step-inline-session-mount--driven"
+        data-session-id="${escapeHtml(wait.id)}" data-step-id="${escapeHtml(s.id)}"></div>
+    </div>`;
+  }
   if (!s.sessionId) return '';
   const driven = isDriven(job, s.sessionId);
   const mount = `<div class="step-inline-session-mount${driven ? ' step-inline-session-mount--driven' : ''}"`

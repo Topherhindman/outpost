@@ -71,7 +71,7 @@ function jobActions(j, pendingApprovals) {
     if (s.type === 'orchestrated' && s.gate) out.push({ kind: 'gate', stepId: s.id, phase: s.phase ?? null, question: s.gate.question ?? '' });
     for (const d of s.drafts ?? []) if (draftAwaitsUser(s, d)) out.push({ kind: 'draft', stepId: s.id, draftId: d.id });
     if (s.type === 'action' && s.state === 'waiting' && s.resumeAt == null) {
-      out.push({ kind: 'wait', stepId: s.id, reason: s.inputs?.reason ? String(s.inputs.reason) : '' });
+      out.push({ kind: 'wait', stepId: s.id, reason: s.inputs?.reason ? String(s.inputs.reason) : '', session: s.manualSession ?? null });
     }
   }
   const push = implementAwaitingPush(j);

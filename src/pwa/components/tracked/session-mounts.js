@@ -9,6 +9,7 @@
 
 import { mountInlineSession } from '../work/inline-session.js';
 import { mountSessionView } from '../session-view/index.js';
+import { inlineWaitSession } from '../work/wait-session.js';
 
 const mountsByJob = new Map();
 
@@ -103,6 +104,13 @@ export function syncInlineMounts(root, job) {
   // A driven session gets the full session view (transcript + composer + mode selector) in
   // place of the two-line tail — see wheel-toggle.js.
   const drivenIds = new Set(job.live?.interactiveSessionIds ?? []);
+  // The user's own session on a parked wait — never daemon-driven, and possibly not spawned
+  // yet, so its first attach needs the cwd.
+  const waitCwds = new Map();
+  for (const s of job.steps ?? []) {
+    const wait = inlineWaitSession(s);
+    if (wait) waitCwds.set(wait.id, wait.cwd);
+  }
 
   root.querySelectorAll('[data-session-id]').forEach((el) => {
     const sessionId = el.getAttribute('data-session-id');
@@ -110,7 +118,7 @@ export function syncInlineMounts(root, job) {
     seen.add(sessionId);
     const step = stepForSession(job, sessionId);
     const live = isLive(sessionId);
-    const driven = drivenIds.has(sessionId);
+    const driven = drivenIds.has(sessionId) || waitCwds.has(sessionId);
     const prior = existing.get(sessionId);
     // A change in driven-ness changes WHICH component owns the element, so it can't be an
     // update — tear the old one down and mount the other.
@@ -120,7 +128,7 @@ export function syncInlineMounts(root, job) {
     }
     if (prior) prior.handle.unmount();
     const handle = driven
-      ? mountSessionView(el, sessionId, { jobId: job.id })
+      ? mountSessionView(el, sessionId, { jobId: job.id, cwd: waitCwds.get(sessionId) })
       : mountInlineSession(el, sessionId, { jobId: job.id, step, live });
     existing.set(sessionId, { el, handle, driven });
   });

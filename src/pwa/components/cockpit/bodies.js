@@ -52,7 +52,8 @@ const ACTION_HTML = {
         <button type="button" class="o-btn o-btn--primary" data-ckb-body="resume-wait" data-step-id="${escapeHtml(a.stepId)}">Resume</button>
         ${sessionLabel ? `<button type="button" class="o-btn o-btn--default" data-ckb-body="wait-session" data-step-id="${escapeHtml(a.stepId)}">${escapeHtml(sessionLabel)}</button>` : ''}
         <button type="button" class="o-btn o-btn--danger" data-ckb-body="abandon">Abandon job</button>
-      </div>`;
+      </div>
+      ${a.session ? `<div class="ckb-session" data-ckb-session="${escapeHtml(a.session.id)}" data-ckb-session-cwd="${escapeHtml(a.session.cwd)}"></div>` : ''}`;
   },
   stall(job, a) {
     return `<div class="ckb-body-actions"><button type="button" class="o-btn o-btn--primary" data-ckb-body="${a.auth ? 'sign-in' : 'resume-stalled'}">${a.auth ? 'Sign in' : 'Resume'}</button></div>`;
@@ -166,7 +167,8 @@ function wireActionBody(el, job, model, sessionMounts) {
   }
   el.querySelectorAll('[data-ckb-session]').forEach((m) => {
     const id = m.getAttribute('data-ckb-session');
-    sessionMounts.set(id, mountSessionView(m, id, { jobId: job.id, scopedHotkeys: true }));
+    const cwd = m.getAttribute('data-ckb-session-cwd') ?? undefined;
+    sessionMounts.set(id, mountSessionView(m, id, { jobId: job.id, cwd, scopedHotkeys: true }));
   });
   wireBodyButtons(el, job);
   wireAutogrow(el);
