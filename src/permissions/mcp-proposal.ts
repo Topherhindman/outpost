@@ -127,8 +127,7 @@ export function proposeForServer(result: CatalogResult, groups: PermissionGroupM
   // One rule per server per group, built from the tools this server proposes for that group
   // and not already covered by an existing pattern. Anchored, enumerated alternations only —
   // never a prefix: `^mcp__sentry__(get_issue|list_issues)$`, not `^mcp__sentry__(get|list)`.
-  // The unanchored `^mcp__claude_ai_DataDog_MCP__` prefix in the shipped global allowlist is
-  // exactly how a write (`submit_metric`) slipped into a read grant — a prefix grants every
+  // A bare server prefix (`^mcp__claude_ai_Datadog__`) is exactly how a write (`submit_metric`) slipped into a read grant — a prefix grants every
   // tool the vendor adds after the user approved it, including ones that didn't exist yet.
   const byGroup = new Map<'pull' | 'push', string[]>();
   for (const p of placements) {

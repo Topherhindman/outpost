@@ -42,7 +42,7 @@ describe('classifyTool — precedence rule 2: exact MCP write table', () => {
     expect(MCP_WRITE_TOOLS).toContain('mcp__grafana__grafana_api_request');
     expect(MCP_WRITE_TOOLS).toContain('mcp__claude_ai_incident_io__incident_update');
     expect(MCP_WRITE_TOOLS).toContain('mcp__claude_ai_Linear__save_comment');
-    expect(MCP_WRITE_TOOLS).toContain('mcp__notion__notion-create-pages');
+    expect(MCP_WRITE_TOOLS).toContain('mcp__claude_ai_Notion__notion-create-pages');
   });
 
   it('no seeded write tool accidentally collides with a read-verb prefix/suffix', () => {
@@ -83,8 +83,8 @@ describe('classifyTool — precedence rule 3: MCP read-verb prefixes', () => {
     // Notion's own tool names repeat its vendor prefix (`notion-fetch`, `notion-search`) —
     // without stripping that echo, "notion-fetch" doesn't start with "fetch" at all and would
     // wrongly fall through to `unknown`.
-    expect(effectOf('mcp__notion__notion-fetch')).toBe('read');
-    expect(effectOf('mcp__notion__notion-search')).toBe('read');
+    expect(effectOf('mcp__claude_ai_Notion__notion-fetch')).toBe('read');
+    expect(effectOf('mcp__claude_ai_Notion__notion-search')).toBe('read');
   });
 });
 
@@ -118,10 +118,10 @@ describe('classifyTool — a read-verb prefix/suffix match is refused when a mut
   });
 
   it('leaves the legitimate Notion vendor-echo cases unaffected by the whole-name scan', () => {
-    expect(effectOf('mcp__notion__notion-fetch')).toBe('read');
-    expect(effectOf('mcp__notion__notion-search')).toBe('read');
-    expect(effectOf('mcp__notion__notion-create-pages')).toBe('external-write');
-    expect(effectOf('mcp__notion__notion-update-page')).toBe('external-write');
+    expect(effectOf('mcp__claude_ai_Notion__notion-fetch')).toBe('read');
+    expect(effectOf('mcp__claude_ai_Notion__notion-search')).toBe('read');
+    expect(effectOf('mcp__claude_ai_Notion__notion-create-pages')).toBe('external-write');
+    expect(effectOf('mcp__claude_ai_Notion__notion-update-page')).toBe('external-write');
   });
 
   it('does not let the added `replace` verb collide with an unrelated real read tool', () => {
@@ -139,8 +139,8 @@ describe('classifyTool — real read tools across vendors do not regress against
       'mcp__github__search_code',
       'mcp__claude_ai_Linear__get_issue',
       'mcp__claude_ai_Linear__list_projects',
-      'mcp__notion__notion-fetch',
-      'mcp__notion__notion-search',
+      'mcp__claude_ai_Notion__notion-fetch',
+      'mcp__claude_ai_Notion__notion-search',
       'mcp__grafana__query_prometheus',
       'mcp__grafana__list_datasources',
       'mcp__claude_ai_incident_io__incident_show',

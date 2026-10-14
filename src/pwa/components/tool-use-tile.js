@@ -798,7 +798,7 @@ export function shortenUrl(url) {
 }
 
 export const MCP_SERVER_NAMES = {
-  'claude_ai_DataDog_MCP': 'Datadog',
+  'claude_ai_Datadog': 'Datadog',
   'claude_ai_Slack': 'Slack',
   'claude_ai_PostHog': 'PostHog',
   'claude_ai_Gmail': 'Gmail',

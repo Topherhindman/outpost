@@ -81,19 +81,19 @@ export const MCP_WRITE_TOOLS: readonly string[] = [
   'mcp__claude_ai_Slack__slack_update_canvas',
 
   // Notion
-  'mcp__notion__notion-create-pages',
-  'mcp__notion__notion-update-page',
-  'mcp__notion__notion-create-database',
-  'mcp__notion__notion-update-data-source',
-  'mcp__notion__notion-create-comment',
-  'mcp__notion__notion-create-folder',
-  'mcp__notion__notion-update-folder',
-  'mcp__notion__notion-create-view',
-  'mcp__notion__notion-update-view',
-  'mcp__notion__notion-move-pages',
-  'mcp__notion__notion-duplicate-page',
-  'mcp__notion__notion-create-attachment',
-  'mcp__notion__notion-create-file-upload',
+  'mcp__claude_ai_Notion__notion-create-pages',
+  'mcp__claude_ai_Notion__notion-update-page',
+  'mcp__claude_ai_Notion__notion-create-database',
+  'mcp__claude_ai_Notion__notion-update-data-source',
+  'mcp__claude_ai_Notion__notion-create-comment',
+  'mcp__claude_ai_Notion__notion-create-folder',
+  'mcp__claude_ai_Notion__notion-update-folder',
+  'mcp__claude_ai_Notion__notion-create-view',
+  'mcp__claude_ai_Notion__notion-update-view',
+  'mcp__claude_ai_Notion__notion-move-pages',
+  'mcp__claude_ai_Notion__notion-duplicate-page',
+  'mcp__claude_ai_Notion__notion-create-attachment',
+  'mcp__claude_ai_Notion__notion-create-file-upload',
 
   // Grafana — including the verb-agnostic API proxy that reaches every dashboard/datasource
   // write behind one tool name (the Ship 2 audit finding: it cleared write-shape's probe lint
@@ -173,7 +173,8 @@ function mcpParts(toolName: string): { vendor: string; local: string } {
 // (`merge`/`push`/`update`/`delete`/`create` self-prefixing the same way) can't have that
 // verb discarded by this function before anything checks it.
 function stripVendorEcho(vendor: string, local: string): string {
-  const echo = vendor.toLowerCase();
+  // A claude.ai connector is namespaced `claude_ai_Notion`, but its tools echo only `notion`
+  const echo = vendor.replace(/^claude_ai_/, '').toLowerCase();
   const lower = local.toLowerCase();
   if (echo && (lower.startsWith(`${echo}-`) || lower.startsWith(`${echo}_`))) {
     return local.slice(echo.length + 1);

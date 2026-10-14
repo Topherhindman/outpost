@@ -9,7 +9,7 @@ import { stripAnsi } from './cli-login.js';
 // claude.ai connectors are account-level: nothing in `mcpServers` names them, so
 // mergeMcpServers cannot see them and neither could the MCP panel. They are not optional
 // extras here — this repo's own permission groups grant against `mcp__claude_ai_Linear__`,
-// `mcp__claude_ai_Slack__` and `mcp__claude_ai_DataDog_MCP__`, so a lapsed connector breaks
+// `mcp__claude_ai_Slack__` and `mcp__claude_ai_Datadog__`, so a lapsed connector breaks
 // actions exactly the way a lapsed local server does.
 //
 // `claude mcp list` is the only enumeration available and it health-checks every row, costing

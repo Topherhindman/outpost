@@ -92,7 +92,7 @@ describe('proposeForServer — reconciling against existing grants', () => {
     // The known classifier/pull disagreement: DataDog load_/aggregate_ classify unknown here
     // but pull already grants them by vendor pattern.
     const proposal = proposeForServer(
-      ok('claude_ai_DataDog_MCP', [{ name: 'load_dashboard' }]),
+      ok('claude_ai_Datadog', [{ name: 'load_dashboard' }]),
       realGroups as unknown as PermissionGroupMap,
     );
     const p = proposal.placements[0]!;

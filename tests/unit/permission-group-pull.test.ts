@@ -142,7 +142,7 @@ describe('the pull group grants network reads only', () => {
       'mcp__github__merge_pull_request', 'mcp__github__create_pull_request',
       'mcp__github__delete_file', 'mcp__github__push_files',
       'mcp__claude_ai_Linear__save_issue', 'mcp__claude_ai_Linear__create_issue_label',
-      'mcp__claude_ai_Slack__slack_send_message', 'mcp__notion__notion-update-page',
+      'mcp__claude_ai_Slack__slack_send_message', 'mcp__claude_ai_Notion__notion-update-page',
       'mcp__grafana__update_dashboard', 'mcp__grafana__create_incident',
     ]) expect(allowsMcp(t), t).toBe(false);
   });
@@ -150,8 +150,8 @@ describe('the pull group grants network reads only', () => {
   it('still allows the MCP reads it is for', () => {
     for (const t of [
       'mcp__github__get_file_contents', 'mcp__github__pull_request_read',
-      'mcp__claude_ai_Linear__get_issue', 'mcp__claude_ai_DataDog_MCP__search_datadog_logs',
-      'mcp__grafana__query_loki_logs', 'mcp__notion__notion-fetch',
+      'mcp__claude_ai_Linear__get_issue', 'mcp__claude_ai_Datadog__search_datadog_logs',
+      'mcp__grafana__query_loki_logs', 'mcp__claude_ai_Notion__notion-fetch',
     ]) expect(allowsMcp(t), t).toBe(true);
   });
 });
@@ -181,10 +181,10 @@ describe('the pull group covers the remote reads that only global granted', () =
   });
 
   it('allows the Notion read that pull’s pattern missed', () => {
-    expect(allowsMcp('mcp__notion__notion-query-data-sources')).toBe(true);
+    expect(allowsMcp('mcp__claude_ai_Notion__notion-query-data-sources')).toBe(true);
   });
 
   it('still refuses DataDog writes', () => {
-    expect(allowsMcp('mcp__claude_ai_DataDog_MCP__submit_metric')).toBe(false);
+    expect(allowsMcp('mcp__claude_ai_Datadog__submit_metric')).toBe(false);
   });
 });

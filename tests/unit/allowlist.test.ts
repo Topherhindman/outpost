@@ -26,7 +26,7 @@ describe('Allowlist', () => {
 
   it('read-only MCP tools pass', () => {
     expect(a.allows('mcp__claude_ai_incident_io__incident_show', { id: 'INC-1' })).toBe(true);
-    expect(a.allows('mcp__notion__notion-fetch', { id: 'page' })).toBe(true);
+    expect(a.allows('mcp__claude_ai_Notion__notion-fetch', { id: 'page' })).toBe(true);
   });
 
   it('write MCP tools do NOT pass', () => {

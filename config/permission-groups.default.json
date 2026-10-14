@@ -49,9 +49,9 @@
     ],
     "alwaysAllowMcpPatterns": [
       "^mcp__claude_ai_Linear__(get_|list_|search_)",
-      "^mcp__claude_ai_DataDog_MCP__(search_|analyze_|find_|list_|load_|get_|aggregate_)",
+      "^mcp__claude_ai_Datadog__(search_|analyze_|find_|list_|load_|get_|aggregate_)",
       "^mcp__github__(get|list|search|pull_request_read|issue_read)",
-      "^mcp__notion__notion-(fetch|search|get-|query-data-sources)",
+      "^mcp__claude_ai_Notion__notion-(fetch|search|get-|query-data-sources)",
       "^mcp__claude_ai_Slack__slack_(read_|search_)",
       "^mcp__claude_ai_incident_io__(.*_show|.*_list|alert_stats|incident_stats|follow_up_stats|escalation_stats|ask|ask_incident|ask_telemetry|investigation_sync)$",
       "^mcp__grafana__(get_|list_|search_|query_|find_|analyze_)"
@@ -112,7 +112,7 @@
       "^mcp__claude_ai_Linear__(save_|create_)",
       "^mcp__github__(?:create_branch|create_pull_request|update_pull_request|update_pull_request_branch|add_issue_comment|add_comment_to_pending_review|add_reply_to_pull_request_comment|request_copilot_review)$",
       "^mcp__claude_ai_Slack__slack_(send_|schedule_|create_|update_)",
-      "^mcp__notion__notion-(create-|update-|move-|duplicate-)"
+      "^mcp__claude_ai_Notion__notion-(create-|update-|move-|duplicate-)"
     ],
     "alwaysAllowPathPatterns": []
   }
