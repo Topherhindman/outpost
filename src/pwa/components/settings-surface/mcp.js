@@ -5,6 +5,8 @@ import { setHtmlIfChanged } from '../../utils/keyed-rows.js';
 import { detailShell, block } from './detail-shell.js';
 import { mcpServerRows, mcpConnectorRows, mcpConnectorsHidden } from '../../vm/settings.js';
 
+const CLAUDE_AI_CONNECTORS_URL = 'https://claude.ai/settings/connectors';
+
 // Settings > MCP connections. Two jobs: say which servers are healthy, and re-authorize the
 // OAuth ones from whatever device you happen to be holding.
 //
@@ -118,17 +120,22 @@ function flowCardHtml(state) {
   `;
 }
 
+// A `missing` connector is one Claude Code no longer enumerates, so the CLI login would 404 —
+// claude.ai's own connector settings is the only place left to reconnect it.
 function connectorRowHtml(row) {
+  const missing = row.status === 'missing';
   return `
     <div class="o-row mcp-row" data-server="${escapeHtml(row.name)}">
       <span class="o-row-icon ${row.tone === 'danger' ? 'hot' : 'ok'}">◈</span>
       <div>
         <div class="o-row-title">${escapeHtml(row.label)}</div>
-        <div class="o-row-sub">claude.ai connector</div>
+        <div class="o-row-sub">${missing ? 'Dropped by Claude Code — reconnect it on claude.ai' : 'claude.ai connector'}</div>
       </div>
       <div class="mcp-row-state">
         <span class="o-pill ${escapeHtml(row.tone)}">${escapeHtml(row.statusLabel)}</span>
-        <button type="button" class="o-btn o-btn--default sm mcp-reauth-btn">${row.status === 'connected' ? 'Re-authorize…' : 'Authorize…'}</button>
+        ${missing
+          ? `<a class="o-btn o-btn--default sm" href="${CLAUDE_AI_CONNECTORS_URL}" target="_blank" rel="noopener noreferrer">Open claude.ai ↗</a>`
+          : `<button type="button" class="o-btn o-btn--default sm mcp-reauth-btn">${row.status === 'connected' ? 'Re-authorize…' : 'Authorize…'}</button>`}
       </div>
     </div>
   `;
@@ -147,12 +154,14 @@ export function renderMcp(mount) {
   const connectorSection = block(body, 'claude.ai connectors', `
     <p class="settings-note">Authorized on your claude.ai account, not here — several permission
     groups grant against these, so a lapsed one breaks actions the same way a local server does.</p>
+    <div class="settings-loading mcp-connector-checking" hidden>Checking connectors…</div>
     <div class="o-row-group mcp-connector-rows"></div>
   `);
   const rowsEl = section.querySelector('.mcp-rows');
   const slotEl = section.querySelector('.mcp-auth-slot');
   const refreshBtn = section.querySelector('.settings-refresh-btn');
   const connectorRowsEl = connectorSection.querySelector('.mcp-connector-rows');
+  const checkingEl = connectorSection.querySelector('.mcp-connector-checking');
 
   const flowEl = document.createElement('div');
   flowEl.className = 'mcp-auth-flow';
@@ -161,7 +170,8 @@ export function renderMcp(mount) {
   const state = {
     flow: null, startingServer: null, busy: null, error: null, copied: false, pasted: '',
     anchored: false,
-    connectors: [], connectorsLoaded: false, connectorError: null, showAllConnectors: false,
+    connectors: [], connectorsLoaded: false, connectorsChecking: false, connectorError: null,
+    showAllConnectors: false,
   };
 
   function paintRows() {
@@ -213,7 +223,9 @@ export function renderMcp(mount) {
   }
 
   function paintConnectors() {
-    if (state.connectorError) {
+    // Only shown over rows already on screen; with none, the row area says it instead.
+    checkingEl.hidden = !(state.connectorsChecking && state.connectorsLoaded);
+    if (state.connectorError && !state.connectorsLoaded) {
       setHtmlIfChanged(connectorRowsEl, `<p class="settings-note">Could not list connectors: ${escapeHtml(state.connectorError)}</p>`);
     } else if (!state.connectorsLoaded) {
       setHtmlIfChanged(connectorRowsEl, '<div class="settings-loading">Checking connectors…</div>');
@@ -230,19 +242,27 @@ export function renderMcp(mount) {
     placeFlow();
   }
 
-  async function loadConnectors(refresh = false) {
-    if (refresh) {
-      state.connectorsLoaded = false;
-      paintConnectors();
-    }
+  function applyConnectors(data) {
+    state.connectors = Array.isArray(data?.connectors) ? data.connectors : [];
+    state.connectorsLoaded = data?.fetchedAt != null;
+    state.connectorError = null;
+  }
+
+  // Paints the persisted list straight away, then waits on the health check behind it.
+  async function loadConnectors(force = false) {
     try {
-      const data = await metaApi.mcpConnectors(refresh);
-      state.connectors = Array.isArray(data?.connectors) ? data.connectors : [];
-      state.connectorsLoaded = true;
-      state.connectorError = null;
+      if (!force) {
+        const data = await metaApi.mcpConnectors(false);
+        applyConnectors(data);
+        if (!data?.stale) return;
+      }
+      state.connectorsChecking = true;
+      paintConnectors();
+      applyConnectors(await metaApi.mcpConnectors(true));
     } catch (e) {
       state.connectorError = e.body || e.message;
     } finally {
+      state.connectorsChecking = false;
       paintConnectors();
     }
   }

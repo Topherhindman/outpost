@@ -145,8 +145,9 @@ const CONNECTOR_LABEL = {
   'needs-auth': 'Needs authorization',
   pending: 'Pending approval',
   error: 'Unreachable',
+  missing: 'Not listed',
 };
-const CONNECTOR_TONE = { connected: 'ok', 'needs-auth': 'danger', pending: 'warn', error: 'danger' };
+const CONNECTOR_TONE = { connected: 'ok', 'needs-auth': 'danger', pending: 'warn', error: 'danger', missing: 'warn' };
 
 // claude.ai connectors. `relevant` is the ones connected now or previously — the default view,
 // because the ~20 never touched are noise next to the handful actions actually depend on.

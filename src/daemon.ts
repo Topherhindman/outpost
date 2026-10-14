@@ -1163,7 +1163,7 @@ async function main() {
     journalStore, denialsStore, mcpConfigPath,
     permissionGroupsPath: PERMISSION_GROUPS_PATH, groupRevisions,
   });
-  registerAuthRoutes(server, { loginFlows, claudeLogin, connectors: new McpConnectorList() });
+  registerAuthRoutes(server, { loginFlows, claudeLogin, connectors: new McpConnectorList(join(RUNTIME_DIR, 'mcp-connectors.json')) });
   registerRunsRoutes(server, { runsStore, usageLedger, getAccountUsage: () => latestAccountUsage });
   registerSchedulesRoutes(server, { store: schedulesStore, scheduler, notify: notifyAll, tokenStatus: (id) => tokenScheduler.describe(id) });
   registerPreferencesRoutes(server, { preferencesStore, notify: notifyAll });

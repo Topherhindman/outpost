@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { resolveClaudeBin } from '../session/claude-proc.js';
 import { stripAnsi } from './cli-login.js';
@@ -13,14 +13,18 @@ import { stripAnsi } from './cli-login.js';
 // actions exactly the way a lapsed local server does.
 //
 // `claude mcp list` is the only enumeration available and it health-checks every row, costing
-// ~11s for 39 servers. Hence the cache: this is fetched on the panel's own schedule, never on
-// a path that blocks a paint.
+// ~7-11s. Hence the persisted list: the panel paints the last known one instantly and
+// revalidates behind it, including across daemon restarts.
+//
+// The CLI also drops a connector from its enumeration entirely once it has needed auth for a
+// while (`claude mcp get` then answers "No MCP server named …"), so a connector the user relies
+// on would silently disappear. A relevant one absent from the latest list is kept as `missing`.
 
 const LIST_TIMEOUT_MS = 30_000;
 const CACHE_TTL_MS = 5 * 60_000;
 const CONNECTOR_PREFIX = 'claude.ai ';
 
-export type ConnectorStatus = 'connected' | 'needs-auth' | 'pending' | 'error';
+export type ConnectorStatus = 'connected' | 'needs-auth' | 'pending' | 'error' | 'missing';
 
 export interface McpConnector {
   name: string;
@@ -29,6 +33,14 @@ export interface McpConnector {
   // Connected now, or in ~/.claude.json's `claudeAiMcpEverConnected`. The panel leads with
   // these: the ~20 a user has never touched are noise next to the ones they actually rely on.
   relevant: boolean;
+  lastSeenAt?: number;
+}
+
+export interface ConnectorSnapshot {
+  connectors: McpConnector[];
+  // null until the first `claude mcp list` has ever succeeded.
+  fetchedAt: number | null;
+  stale: boolean;
 }
 
 const execFileAsync = promisify(execFile);
@@ -73,20 +85,74 @@ function everConnected(): Set<string> {
   }
 }
 
-export class McpConnectorList {
-  private cache: { at: number; connectors: McpConnector[] } | null = null;
-  private inFlight: Promise<McpConnector[]> | null = null;
+// Folds a fresh `claude mcp list` into the previous list. Only relevant connectors survive
+// being unlisted — a never-touched one leaving the catalog is not news.
+export function mergeConnectors(
+  listed: { name: string; target: string; status: ConnectorStatus }[],
+  previous: McpConnector[],
+  ever: Set<string>,
+  now: number,
+): McpConnector[] {
+  const prevByName = new Map(previous.map((c) => [c.name, c]));
+  const merged: McpConnector[] = listed
+    .filter((r) => r.name.startsWith(CONNECTOR_PREFIX))
+    .map((r) => ({
+      ...r,
+      relevant: r.status === 'connected' || ever.has(r.name) || !!prevByName.get(r.name)?.relevant,
+      lastSeenAt: now,
+    }));
+  const seen = new Set(merged.map((c) => c.name));
+  const keep = new Set([...ever, ...previous.filter((c) => c.relevant).map((c) => c.name)]);
+  for (const name of keep) {
+    if (seen.has(name) || !name.startsWith(CONNECTOR_PREFIX)) continue;
+    const prev = prevByName.get(name);
+    merged.push({ name, target: prev?.target ?? '', status: 'missing', relevant: true, lastSeenAt: prev?.lastSeenAt });
+  }
+  return merged.sort((a, b) => Number(b.relevant) - Number(a.relevant)
+    || Number(a.status === 'missing') - Number(b.status === 'missing')
+    || a.name.localeCompare(b.name));
+}
 
-  // Coalesced and cached: two panels mounting at once must not pay 11s twice, and a `force`
-  // refresh right after an authorization is the one case worth paying it again for.
-  async list(force = false): Promise<McpConnector[]> {
-    if (!force && this.cache && Date.now() - this.cache.at < CACHE_TTL_MS) return this.cache.connectors;
+function atomicWrite(path: string, data: string): void {
+  mkdirSync(dirname(path), { recursive: true });
+  const tmp = `${path}.tmp`;
+  writeFileSync(tmp, data);
+  renameSync(tmp, path);
+}
+
+export class McpConnectorList {
+  private connectors: McpConnector[] = [];
+  private fetchedAt: number | null = null;
+  private inFlight: Promise<ConnectorSnapshot> | null = null;
+
+  constructor(private readonly path: string) {
+    if (!existsSync(path)) return;
+    try {
+      const parsed = JSON.parse(readFileSync(path, 'utf8')) as { fetchedAt?: unknown; connectors?: unknown };
+      if (Array.isArray(parsed.connectors)) this.connectors = parsed.connectors as McpConnector[];
+      if (typeof parsed.fetchedAt === 'number') this.fetchedAt = parsed.fetchedAt;
+    } catch (e) {
+      console.warn(`[mcp-connectors] ignoring unreadable ${path}: ${(e as Error).message}`);
+    }
+  }
+
+  snapshot(): ConnectorSnapshot {
+    return {
+      connectors: this.connectors,
+      fetchedAt: this.fetchedAt,
+      stale: this.fetchedAt === null || Date.now() - this.fetchedAt >= CACHE_TTL_MS,
+    };
+  }
+
+  // Coalesced: two panels mounting at once must not pay the health check twice.
+  async refresh(force = false): Promise<ConnectorSnapshot> {
+    if (!force && !this.snapshot().stale) return this.snapshot();
     if (this.inFlight) return this.inFlight;
     this.inFlight = this.fetch().finally(() => { this.inFlight = null; });
     return this.inFlight;
   }
 
-  private async fetch(): Promise<McpConnector[]> {
+  private async fetch(): Promise<ConnectorSnapshot> {
     let raw: string;
     try {
       const { stdout, stderr } = await execFileAsync(resolveClaudeBin(), ['mcp', 'list'],
@@ -95,15 +161,17 @@ export class McpConnectorList {
     } catch (e) {
       // A stale list beats none — a health check timing out says nothing about which
       // connectors exist.
-      if (this.cache) return this.cache.connectors;
+      if (this.fetchedAt !== null) return this.snapshot();
       throw new Error(`could not list MCP servers: ${(e as Error).message}`);
     }
-    const ever = everConnected();
-    const connectors = parseListOutput(raw)
-      .filter((r) => r.name.startsWith(CONNECTOR_PREFIX))
-      .map((r) => ({ ...r, relevant: r.status === 'connected' || ever.has(r.name) }))
-      .sort((a, b) => Number(b.relevant) - Number(a.relevant) || a.name.localeCompare(b.name));
-    this.cache = { at: Date.now(), connectors };
-    return connectors;
+    const now = Date.now();
+    this.connectors = mergeConnectors(parseListOutput(raw), this.connectors, everConnected(), now);
+    this.fetchedAt = now;
+    try {
+      atomicWrite(this.path, JSON.stringify({ fetchedAt: now, connectors: this.connectors }, null, 2) + '\n');
+    } catch (e) {
+      console.warn(`[mcp-connectors] could not persist ${this.path}: ${(e as Error).message}`);
+    }
+    return this.snapshot();
   }
 }

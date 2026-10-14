@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseListOutput } from '../../src/integrations/mcp-connectors.js';
+import { parseListOutput, mergeConnectors } from '../../src/integrations/mcp-connectors.js';
 // @ts-expect-error PWA modules are plain JS; tests import them at runtime.
 import { mcpConnectorRows, mcpConnectorsHidden } from '../../src/pwa/vm/settings.js';
 
@@ -46,6 +46,40 @@ describe('parseListOutput', () => {
   it('tolerates the ANSI colour the CLI wraps errors in', () => {
     expect(parseListOutput('\x1b[31mfoo: https://x/mcp - ! Needs authentication\x1b[0m'))
       .toEqual([{ name: 'foo', target: 'https://x/mcp', status: 'needs-auth' }]);
+  });
+});
+
+// The CLI stops enumerating a connector once it has needed auth for a while, so a connector the
+// user relied on would vanish from the panel with nothing saying it ever existed.
+describe('mergeConnectors', () => {
+  const listed = [
+    { name: 'claude.ai Linear', target: 'https://mcp.linear.app/mcp', status: 'connected' as const },
+    { name: 'claude.ai Gem', target: 'https://mcp.gem.com/mcp', status: 'needs-auth' as const },
+    { name: 'grafana', target: '/bin/uvx mcp-grafana', status: 'connected' as const },
+  ];
+
+  it('keeps a previously relevant connector the CLI dropped, as missing', () => {
+    const previous = [
+      { name: 'claude.ai Ramp', target: 'https://ramp/mcp', status: 'needs-auth' as const, relevant: true, lastSeenAt: 1 },
+    ];
+    const out = mergeConnectors(listed, previous, new Set(), 100);
+    expect(out.find((c) => c.name === 'claude.ai Ramp'))
+      .toEqual({ name: 'claude.ai Ramp', target: 'https://ramp/mcp', status: 'missing', relevant: true, lastSeenAt: 1 });
+  });
+
+  it('surfaces an ever-connected connector that was never seen in a list', () => {
+    const out = mergeConnectors(listed, [], new Set(['claude.ai Deel']), 100);
+    expect(out.find((c) => c.name === 'claude.ai Deel')?.status).toBe('missing');
+  });
+
+  it('forgets an unlisted connector nobody ever connected', () => {
+    const previous = [{ name: 'claude.ai Stripe', target: 'x', status: 'needs-auth' as const, relevant: false }];
+    expect(mergeConnectors(listed, previous, new Set(), 100).map((c) => c.name)).not.toContain('claude.ai Stripe');
+  });
+
+  it('drops local servers and sorts listed relevant rows ahead of missing ones', () => {
+    const out = mergeConnectors(listed, [], new Set(['claude.ai Deel']), 100);
+    expect(out.map((c) => c.name)).toEqual(['claude.ai Linear', 'claude.ai Deel', 'claude.ai Gem']);
   });
 });
 

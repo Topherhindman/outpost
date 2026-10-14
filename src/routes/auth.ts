@@ -45,12 +45,14 @@ export function registerAuthRoutes(server: Server, deps: AuthRoutesDeps): void {
     sendJson(res, { flows: loginFlows.list() });
   });
 
-  // Slow (a health check per server) and cached — fetched on the panel's own schedule so it
-  // never delays the local-server rows, same split as /api/mcp/catalog.
+  // Answers instantly from the persisted list; `?refresh=1` waits on the slow health check, so
+  // the panel paints first and revalidates second.
   server.route('GET', '/api/mcp/connectors', async (req: IncomingMessage, res: ServerResponse) => {
-    const force = new URL(req.url ?? '', 'http://internal').searchParams.get('refresh') === '1';
+    if (new URL(req.url ?? '', 'http://internal').searchParams.get('refresh') !== '1') {
+      return sendJson(res, connectors.snapshot());
+    }
     try {
-      sendJson(res, { connectors: await connectors.list(force) });
+      sendJson(res, await connectors.refresh(true));
     } catch (e) {
       fail(res, 502, (e as Error).message);
     }
