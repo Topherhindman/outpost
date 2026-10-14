@@ -14,6 +14,7 @@ function makeEngine(dir = mkdtempSync(join(tmpdir(), 'orch-'))) {
   const queue = new JobQueue(dir);
   const spawned: Array<{ sessionId: string; env: Record<string, string>; action?: string; kick?: string }> = [];
   const resumed: Array<{ sessionId: string; env: Record<string, string> }> = [];
+  const working = new Set<string>();
   const sessionManager = {
     spawnDetached(sessionId: string, _cwd: string, env: Record<string, string>) {
       spawned.push({ sessionId, env });
@@ -22,7 +23,7 @@ function makeEngine(dir = mkdtempSync(join(tmpdir(), 'orch-'))) {
       const entry = spawned.find((s) => s.sessionId === sessionId);
       if (entry) entry.kick = msg.message.content;
     },
-    isWorking() { return false; },
+    isWorking(sessionId: string) { return working.has(sessionId); },
     sendOrResume(sessionId: string, _cwd: string, _msg: unknown, env: Record<string, string>) {
       resumed.push({ sessionId, env });
     },
@@ -60,7 +61,7 @@ function makeEngine(dir = mkdtempSync(join(tmpdir(), 'orch-'))) {
     if (entry) entry.action = name;
     orig(sid, name);
   };
-  return { engine, queue, spawned, resumed, dir, worktrees };
+  return { engine, queue, spawned, resumed, working, dir, worktrees };
 }
 
 describe('Orchestrator.launchOrchestrator', () => {
@@ -109,25 +110,37 @@ describe('Orchestrator.launchOrchestrator', () => {
 });
 
 describe('Orchestrator.reopenOrchestrator', () => {
-  it('rebinds the orchestrator action on resume after a restart drops the in-memory maps', async () => {
-    // First engine launches the orchestrator, persisting orchestratorSessionId to disk.
-    const first = makeEngine();
-    const job = first.engine.createJob({ source: 'manual', title: 't', description: 'd' });
-    await first.engine.launchOrchestrator(job.id);
-    const orchestratorSessionId = first.queue.get(job.id)!.orchestratorSessionId!;
-    expect(orchestratorSessionId).toBeTruthy();
+  it('starts a fresh planner rather than resuming an idle one', async () => {
+    const { engine, queue, spawned, resumed } = makeEngine();
+    const job = engine.createJob({ source: 'manual', title: 't', description: 'd' });
+    await engine.launchOrchestrator(job.id);
+    const first = queue.get(job.id)!.orchestratorSessionId!;
 
-    // Second engine over the same dir simulates a daemon restart: the job
-    // (with orchestratorSessionId) reloads from disk, but the in-memory action binding is gone.
-    const second = makeEngine(first.dir);
-    expect(second.engine.actionForSession(orchestratorSessionId)).toBeUndefined();
+    engine.reopenOrchestrator(job.id, 'please revise');
+    await new Promise((r) => setImmediate(r));
 
-    second.engine.reopenOrchestrator(job.id, 'please revise');
+    expect(resumed).toHaveLength(0);
+    const next = queue.get(job.id)!.orchestratorSessionId!;
+    expect(next).not.toBe(first);
+    expect(spawned.find((s) => s.sessionId === next)?.action).toBe('meta.orchestrate');
+    const env = JSON.parse(readFileSync(spawned.at(-1)!.env.OUTPOST_ENVELOPE!, 'utf8'));
+    expect(env.mode).toBe('replan');
+    expect(env.userFeedback).toBe('please revise');
+    expect(env.jobFile).toBe(queue.jobFile(job.id));
+  });
 
-    // Resume path must re-establish the binding so the hook-handler auto-allows the
-    // orchestrator's reads instead of treating it as an interactive session.
-    expect(second.resumed.map((r) => r.sessionId)).toEqual([orchestratorSessionId]);
-    expect(second.engine.actionForSession(orchestratorSessionId)).toBe('meta.orchestrate');
+  it('hands the feedback to a planner that is mid-turn instead of racing it', async () => {
+    const { engine, queue, spawned, resumed, working } = makeEngine();
+    const job = engine.createJob({ source: 'manual', title: 't', description: 'd' });
+    await engine.launchOrchestrator(job.id);
+    const sid = queue.get(job.id)!.orchestratorSessionId!;
+    working.add(sid);
+
+    engine.reopenOrchestrator(job.id, 'please revise');
+    await new Promise((r) => setImmediate(r));
+
+    expect(resumed.map((r) => r.sessionId)).toEqual([sid]);
+    expect(spawned).toHaveLength(1);
   });
 });
 

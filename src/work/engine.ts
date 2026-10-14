@@ -27,7 +27,7 @@ import type {
   WorkspaceRef,
   SessionStall,
 } from './work-types.js';
-import { augmentEnvelopeWithLessons, buildActionCatalog, writeEnvelope, STEP_TYPE_CATALOG, type OrchestratorEnvelope, type ActionCatalogEntry, type CatalogScope } from './envelope.js';
+import { augmentEnvelopeWithLessons, buildActionCatalog, planStepView, writeEnvelope, STEP_TYPE_CATALOG, type OrchestratorEnvelope, type ActionCatalogEntry, type CatalogScope } from './envelope.js';
 import { readonlyView, waitWorkspaceError, workspaceError } from './workspace.js';
 import { waitSessionContext } from './wait-session-context.js';
 import { expectRepoOf, parsePrUrl, PR_URL_RE } from './pr-url.js';
@@ -1241,35 +1241,29 @@ export class WorkEngine {
       job: { source: j.source, title: j.title, description: j.description, externalRef: j.externalRef },
       stepTypeCatalog: STEP_TYPE_CATALOG,
       actionCatalog: this.buildActionCatalog({ kind: 'plannable' }),
-      currentSteps: j.steps,
+      currentSteps: j.steps.map(planStepView),
+      jobFile: this.opts.queue.jobFile(jobId),
       userFeedback: feedback,
       rejectedIterations: j.plan?.iterationsRejected,
       recentLessons: this.opts.journalStore?.recent(actionName) ?? [],
     };
     const envelopePath = writeEnvelope(this.ctx.jobsDir, jobId, null, env);
+    const midTurn = j.orchestratorSessionId && this.opts.sessionManager.isWorking(j.orchestratorSessionId)
+      ? j.orchestratorSessionId : undefined;
     this.mutate(jobId, (jj) => this.appendEvent({ ...jj, state: 'planning', reviewingStepId: undefined }, { kind: 'orchestrator_reopened', who: 'user', body: feedback }));
 
-    const followup = `User reopened the orchestrator with this feedback:\n\n${feedback}\n\nRe-read $OUTPOST_ENVELOPE (now in mode=replan, with currentSteps and userFeedback). Post an amended plan via /work/plan-ready with mode=replan.`;
-
-    if (j.orchestratorSessionId) {
-      // Rebind the session's role/action before resuming. These maps are in-memory
-      // only and aren't rehydrated on boot, so after a daemon restart orchestratorSessionId
-      // survives on the job but the binding is gone — without this the hook-handler
-      // treats the resumed orchestrator as an ordinary interactive session and enqueues
-      // approval cards instead of auto-allowing its read-only actions.
-      this.roleBySession.set(j.orchestratorSessionId, { role: 'orchestrator', jobId });
-      this.bindAction(j.orchestratorSessionId, actionName);
-      // Resume — sendOrResume respawns the proc if it was idle-reaped, applying
-      // the new env var (so the envelope path is correct after a respawn too).
+    // Resuming an idle planner drags every earlier round of the job along (CS-2041's reached
+    // 361k tokens); only one that's mid-turn is resumed, since a second would race it to submit_plan.
+    if (midTurn) {
+      const followup = `User reopened the orchestrator with this feedback:\n\n${feedback}\n\nRe-read $OUTPOST_ENVELOPE (now in mode=replan, with currentSteps and userFeedback). Post an amended plan via submit_plan with mode=replan.`;
       this.opts.sessionManager.sendOrResume(
-        j.orchestratorSessionId,
+        midTurn,
         this.orchestratorCwd(),
         { type: 'user', message: { role: 'user', content: followup } },
         { OUTPOST_ENVELOPE: envelopePath, JOB_ID: jobId },
       );
       return;
     }
-    // No prior session — fresh spawn in replan mode.
     void this.spawnOrchestratorSession(jobId, 'replan', envelopePath, actionName, { userInitiated: true });
   }
 
@@ -2843,7 +2837,8 @@ export class WorkEngine {
       job: { source: j.source, title: j.title, description: j.description, externalRef: j.externalRef },
       stepTypeCatalog: STEP_TYPE_CATALOG,
       actionCatalog: this.buildActionCatalog({ kind: 'plannable' }),
-      currentSteps: j.steps,
+      currentSteps: j.steps.map(planStepView),
+      jobFile: this.opts.queue.jobFile(jobId),
       completedStepId,
       rejectedIterations: j.plan?.iterationsRejected,
       recentLessons: this.opts.journalStore?.recent(actionName) ?? [],

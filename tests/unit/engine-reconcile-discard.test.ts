@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -15,10 +15,12 @@ function makeEngine() {
   const dir = mkdtempSync(join(tmpdir(), 'engine-discard-'));
   const queue = new JobQueue(dir);
   const resumed: Array<{ sessionId: string; text: string; env: Record<string, string> }> = [];
+  const spawned: Array<{ sessionId: string; env: Record<string, string> }> = [];
   const engine = new WorkEngine({
     queue,
     sessionManager: {
-      spawnDetached() {}, send() {}, isWorking() { return false; },
+      spawnDetached(sessionId: string, _cwd: string, env: Record<string, string>) { spawned.push({ sessionId, env }); },
+      send() {}, isWorking() { return false; },
       sendOrResume(sessionId: string, _cwd: string, msg: never, env: Record<string, string>) {
         resumed.push({ sessionId, text: (msg as { message: { content: string } }).message.content, env });
       },
@@ -31,7 +33,7 @@ function makeEngine() {
     newId: (() => { let n = 0; return () => `new-${++n}`; })(),
     now: () => 1000,
   });
-  return { engine, queue, resumed };
+  return { engine, queue, resumed, spawned };
 }
 
 function step(id: string, state: ActionStep['state'] = 'running'): ActionStep {
@@ -72,11 +74,12 @@ describe('WorkEngine.onReconciliationDiscarded', () => {
     expect(resumed).toHaveLength(0);
   });
 
-  it('hands the refused amendment back to the orchestrator with the reason', () => {
-    const { engine, queue, resumed } = makeEngine();
+  it('hands the refused amendment back to the orchestrator with the reason', async () => {
+    const { engine, queue, resumed, spawned } = makeEngine();
     const jobId = seed(queue, engine, [fresh('replacement')]);
 
     engine.onReconciliationDiscarded(jobId, '  step 2 is the wrong repo  ');
+    await vi.waitFor(() => expect(spawned).toHaveLength(1));
 
     const j = queue.get(jobId)!;
     expect(j.pendingReconciliation).toBeUndefined();
@@ -90,13 +93,11 @@ describe('WorkEngine.onReconciliationDiscarded', () => {
 
     expect(j.events?.some((e) => e.kind === 'plan_rejected' && e.body === 'step 2 is the wrong repo')).toBe(true);
 
-    // The reason has to reach the session, not just the job record — a rejection the
-    // orchestrator never hears about gets reproposed verbatim.
-    expect(resumed).toHaveLength(1);
-    expect(resumed[0]!.sessionId).toBe('sess-1');
-    expect(resumed[0]!.text).toContain('step 2 is the wrong repo');
+    // The idle planner isn't resumed; the reason reaches the fresh one through its envelope.
+    expect(resumed).toHaveLength(0);
+    expect(spawned[0]!.sessionId).not.toBe('sess-1');
 
-    const env = JSON.parse(readFileSync(resumed[0]!.env.OUTPOST_ENVELOPE!, 'utf8'));
+    const env = JSON.parse(readFileSync(spawned[0]!.env.OUTPOST_ENVELOPE!, 'utf8'));
     expect(env.mode).toBe('replan');
     expect(env.userFeedback).toBe('step 2 is the wrong repo');
     expect(env.rejectedIterations).toHaveLength(1);

@@ -123,6 +123,66 @@ function rosterFilter(reg: ActionRegistry, controller: string): (a: ActionDef) =
   return (a) => visible.has(a.name);
 }
 
+export interface PlanStepView {
+  id: string;
+  type: Step['type'];
+  title: string;
+  description: string;
+  state: Step['state'];
+  goal: string;
+  workspace: WorkspaceRef;
+  cancelled?: boolean;
+  parallelGroup?: string;
+  failure?: Step['failure'];
+  inputs?: Record<string, unknown>;
+  action?: string;
+  output?: string;
+  forwardOutput?: boolean;
+  controller?: string;
+  phase?: string;
+  memo?: string;
+  pr?: Pick<PrFacts, 'prUrl' | 'prState'>;
+  artifacts?: Record<string, string>;
+}
+
+const ARTIFACT_HEAD_CHARS = 200;
+
+// What a planner needs to keep, drop or amend a step — not the step's runtime state. A
+// controller's spec, implPlan, drafts and dispatch history run to tens of KB per step and
+// matter only to the controller that wrote them; 29 steps of it made CS-2041's envelope 790KB.
+export function planStepView(s: Step): PlanStepView {
+  const view: PlanStepView = {
+    id: s.id, type: s.type, title: s.title, description: s.description, state: s.state,
+    goal: s.goal, workspace: s.workspace,
+    ...(s.cancelled ? { cancelled: true } : {}),
+    ...(s.parallelGroup ? { parallelGroup: s.parallelGroup } : {}),
+    ...(s.failure ? { failure: s.failure } : {}),
+    // Resolved and cancelled steps can't be amended, so their inputs can only be noise
+    ...(s.state !== 'resolved' && !s.cancelled && s.inputs ? { inputs: s.inputs } : {}),
+  };
+  if (s.type === 'action') {
+    return {
+      ...view, action: s.action,
+      ...(s.output !== undefined ? { output: s.output } : {}),
+      ...(s.forwardOutput !== undefined ? { forwardOutput: s.forwardOutput } : {}),
+    };
+  }
+  return {
+    ...view, controller: s.controller,
+    ...(s.phase ? { phase: s.phase } : {}),
+    ...(s.memo ? { memo: s.memo } : {}),
+    ...(s.pr?.prUrl ? { pr: { prUrl: s.pr.prUrl, ...(s.pr.prState ? { prState: s.pr.prState } : {}) } } : {}),
+    ...(s.artifacts && Object.keys(s.artifacts).length
+      ? { artifacts: Object.fromEntries(Object.entries(s.artifacts).map(([k, v]) => [k, artifactHead(v)])) }
+      : {}),
+  };
+}
+
+function artifactHead(body: string): string {
+  const first = body.split('\n', 1)[0]!;
+  return first.length > ARTIFACT_HEAD_CHARS ? `${first.slice(0, ARTIFACT_HEAD_CHARS)}…` : first;
+}
+
 export interface OrchestratorEnvelope {
   kind: 'orchestrator';
   mode: 'initial' | 'replan' | 'step-review';
@@ -130,7 +190,8 @@ export interface OrchestratorEnvelope {
   job: { source: JobRecord['source']; title: string; description: string; externalRef?: JobRecord['externalRef'] };
   stepTypeCatalog: StepTypeCatalogEntry[];
   actionCatalog?: ActionCatalogEntry[];
-  currentSteps?: Step[];
+  currentSteps?: PlanStepView[];
+  jobFile?: string;           // the full step records currentSteps summarizes — artifacts, drafts, dispatches
   completedStepId?: string;   // step-review only: the step whose settling triggered this review
   userFeedback?: string;
   launchContext?: string; // initial only: free-text the user attached when launching

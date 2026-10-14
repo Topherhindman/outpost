@@ -68,7 +68,7 @@ export class JobQueue {
     this.loadMeta();
   }
 
-  private jobFile(id: string) { return join(this.dir, `${id}.json`); }
+  jobFile(id: string) { return join(this.dir, `${id}.json`); }
   private metaFile() { return join(this.dir, 'meta.json'); }
 
   private loadAll() {

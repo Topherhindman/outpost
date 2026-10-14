@@ -31,7 +31,7 @@ cat "$OUTPOST_ENVELOPE"
 | Field | Meaning |
 |---|---|
 | `mode` | `"initial"` (first plan), `"replan"` (user/engine reopened the orchestrator to amend), or `"step-review"` (the engine ran you after a step resolved — decide continue-vs-revise). In replan mode, look at `userFeedback` to tell which: a string starting `"All read-only steps resolved."` is the orchestrator auto-trigger. |
-| `completedStepId` (step-review only) | The step that just resolved. Read its `output` in `currentSteps` — that's what you're reacting to. |
+| `completedStepId` (step-review only) | The step that just resolved. Read its `output` (an orchestrated step: its `memo`, `pr` and `artifacts`) in `currentSteps` — that's what you're reacting to. |
 | `jobId` | The job's identifier. Use this as `jobId` in your POST. |
 | `job.source` | `"linear"` or `"manual"`. |
 | `job.title`, `job.description` | The ticket title + body (Linear) or what the user typed (manual). |
@@ -41,7 +41,8 @@ cat "$OUTPOST_ENVELOPE"
 | `launchContext` (initial only) | Free-text the user attached when launching the planner. Treat it as high-signal extra guidance from the user on top of `job.description` — priorities, constraints, hints about where to look. Absent if the user launched without typing anything. |
 | `stepTypeCatalog` | The step-kind catalog (`action`, `orchestrated`). **The orchestrator consumes plans in this shape — use it.** |
 | `actionCatalog` | Every action you may plan as a step — `name`, `description`, `category`, `runner`, `side_effects`, and JSON Schemas. Already filtered to the plannable ones: a controller's internal rounds (`code.implement`, `code.fix-ci`, …) are absent because the controller composes those itself, and so are the actions the daemon and the UI trigger directly. If an action you expected isn't here, it isn't yours to plan. |
-| `currentSteps` (replan only) | The existing plan with state. Each entry has an `id` you need for `keepId`, and completed steps carry their `output`/`findings`. |
+| `currentSteps` (replan + step-review) | A plan-level view of each existing step: the `id` you need for `keepId`, its state and goal, an action step's `output`, an orchestrated step's `memo`, `pr` and the first line of each artifact. A resolved step's `inputs` are left out. |
+| `jobFile` | The full job record `currentSteps` summarizes. `jq` into its `.steps[]` only for something a view can't answer (a resolved step's whole `artifacts.spec`, say) — it runs to hundreds of KB, so never `cat` it. |
 | `userFeedback` (replan only) | The message the user just sent. Highest-signal context. |
 | `rejectedIterations` | Prior orchestrator outputs the user rejected, with their feedback. |
 | `recentLessons` | Your own memory — short lessons you wrote at the end of past orchestrator runs. Skim before planning; if a lesson conflicts with the envelope's actual instructions, the envelope wins. |
@@ -57,7 +58,7 @@ job: decide whether the remaining plan still holds, or needs to change given tha
 step's findings.
 
 1. Read `currentSteps` — find `completedStepId` and read its `output` (the step's
-   findings). Skim the other steps' state.
+   findings; an orchestrated step's `memo`, `pr` and artifact heads). Skim the other steps' state.
 2. **If the plan still holds** — the remaining steps are still the right next
    moves, or all steps are resolved and nothing more is needed — call
    `submit_continue({ jobId, reason })` and exit. The engine advances to the next
@@ -85,7 +86,7 @@ the deployment config repo.
 
 ## Step 1 — Understand the job
 
-If `mode === "replan"`, read `userFeedback` first — it overrides everything else. Then read the `output` on any resolved steps in `currentSteps` — those are usually why the user reopened the orchestrator, and they're what lets you extend a previously partial plan.
+If `mode === "replan"`, read `userFeedback` first — it overrides everything else. Then read the `output` (or `memo`) on any resolved steps in `currentSteps` — those are usually why the user reopened the orchestrator, and they're what lets you extend a previously partial plan.
 
 Else read `job.description`. For Linear-sourced jobs, this is the issue body — and it is never the whole ticket. **Always pull the full ticket from Linear**, however complete the body looks: the context that changes the plan usually sits in a linked PR, a blocking issue, or a comment, not in the body. Read the UUID out of the envelope first, then **type it into the query literally**:
 
@@ -289,7 +290,7 @@ For each step you emit, fill the fields the catalog requires for its `type`. Ref
 
 The daemon rejects any submission where a non-cancelled step is neither kept nor dropped, and any submission with overlap (an id both kept and dropped) or unknown ids. There is no implicit cancellation — omission is a bug. The daemon shows a diff (`✓ ~ + ✗`) and the user approves the reconciliation.
 
-**A step with `state: "resolved"` is history — keep it verbatim.** It already ran: its session's work is done, its output is recorded, its PR exists. So for a resolved step you may ONLY emit `keepId` plus its current fields unchanged. Rewording its `title`/`goal`/`approach`, swapping its `action`, or putting its id in `drops` is rejected — that would rewrite the record of what actually happened, and the user reads the timeline of those steps to judge your amendment. If resolved work needs revisiting, propose a **new** step for the follow-up; the completed one stays as it is. Steps in `failed` or `declined` state carry no such restriction — replanning around those is the point of an amendment, so patch or drop them freely.
+**A step with `state: "resolved"` is history — keep it verbatim.** It already ran: its session's work is done, its output is recorded, its PR exists. So for a resolved step you may ONLY emit `keepId` and its `type` — leave every other field out. Rewording its `title`/`goal`/`approach`, swapping its `action`, or putting its id in `drops` is rejected — that would rewrite the record of what actually happened, and the user reads the timeline of those steps to judge your amendment. If resolved work needs revisiting, propose a **new** step for the follow-up; the completed one stays as it is. Steps in `failed` or `declined` state carry no such restriction — replanning around those is the point of an amendment, so patch or drop them freely.
 
 One replan shape: **keep** the completed investigation step (with its `keepId`) and append new follow-up PR / `write.*` / `meta.wait` steps its findings unlocked; **drops** stays empty.
 

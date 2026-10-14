@@ -66,7 +66,7 @@ export function validateDispositions(current: Step[], proposed: ProposedStep[], 
       if (changed.length > 0) {
         return {
           ok: false,
-          error: `step "${p.keepId}" ("${cur.title}") already completed — restate it verbatim (keepId plus its current fields) instead of changing ${changed.join(', ')}. Completed work is a record of what happened; propose a NEW step for the follow-up you have in mind.`,
+          error: `step "${p.keepId}" ("${cur.title}") already completed — keep it with keepId and type alone instead of changing ${changed.join(', ')}. Completed work is a record of what happened; propose a NEW step for the follow-up you have in mind.`,
         };
       }
       if (p.type !== cur.type) {
