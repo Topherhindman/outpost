@@ -2,6 +2,7 @@ import { gatedMatch, type Allowlist } from './allowlist.js';
 import type { ApprovalQueue, PendingApproval } from './approvals.js';
 import { ApprovalModeStore, PLAN_MODE_ALWAYS, isPlanModeReadableMcpTool } from './approval-mode.js';
 import type { ActionAllowlist } from '../actions/types.js';
+import { extractFileReferences } from './file-flags.js';
 import { verifyFileDigests } from '../work/write-draft.js';
 
 export interface HookInput {
@@ -189,6 +190,12 @@ function fileDigestMismatchReason(): string {
     + 'mcp__outpost__submit_write_draft and wait for a new approval.';
 }
 
+function carriesPayloadInline(toolName: string, toolInput: unknown): boolean {
+  if (toolName !== 'Bash') return true;
+  const command = (toolInput as { command?: unknown } | null)?.command;
+  return typeof command === 'string' && extractFileReferences(command)?.length === 0;
+}
+
 export async function handleHook(opts: HandleHookOpts): Promise<HookResponse> {
   const {
     hookInput, allowlist, queue, modes, cwdForSession, worktreePathForSession, actionForSession,
@@ -293,6 +300,12 @@ export async function handleHook(opts: HandleHookOpts): Promise<HookResponse> {
     // `$VAR` or a `>` redirect outside the worktree, see Critical 1 in review round 1).
     if (gated && gatedMatch(gated, hookInput.tool_name, hookInput.tool_input)) {
       const pin = pinFor?.(hookInput.session_id, hookInput.tool_name, hookInput.tool_input);
+      // A driven session has an approver attached, and the card shows the whole payload unless
+      // a file flag carries it — that one still needs a draft, whose card renders the body.
+      if (!pin && driven && carriesPayloadInline(hookInput.tool_name, hookInput.tool_input)
+        && allowlist.allows(hookInput.tool_name, hookInput.tool_input, projectCwd, action, worktreePath, hookInput.session_id)) {
+        return enqueue();
+      }
       const pinMatched = !!pin;
       if (!pin || !allowlist.allows(hookInput.tool_name, hookInput.tool_input, projectCwd, action, worktreePath, hookInput.session_id)) {
         const draftState = draftStateFor?.(hookInput.session_id) ?? 'none';

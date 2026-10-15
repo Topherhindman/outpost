@@ -58,14 +58,38 @@ describe('hook — an action session the user is driving', () => {
     expect(r.hookSpecificOutput.permissionDecisionReason).toContain('Plan mode');
   });
 
-  it('still requires a pin for a gated write — the card cannot show a --body-file body', async () => {
+  it('puts an unpinned gated write in front of the user — its command text is the whole payload', async () => {
+    const enqueued: unknown[] = [];
+    const r = await run({
+      hookInput: { tool_name: 'Bash', tool_input: { command: 'git push origin fix' }, session_id: 's1' },
+      allowlist: { allows: () => true } as never,
+      queue: { enqueue: async (a: unknown) => { enqueued.push(a); return { allow: true }; }, listPending: () => [] } as never,
+      gatedForAction: () => PUSH,
+      pinFor: () => undefined,
+      draftStateFor: () => 'pending',
+    });
+    expect(r.hookSpecificOutput.permissionDecision).toBe('allow');
+    expect(enqueued).toHaveLength(1);
+  });
+
+  it('still requires a pin for a gated write whose body is in a file the card cannot show', async () => {
+    const r = await run({
+      hookInput: { tool_name: 'Bash', tool_input: { command: 'gh pr comment 7 --body-file /tmp/r.md' }, session_id: 's1' },
+      allowlist: { allows: () => true } as never,
+      gatedForAction: () => ({ ...PUSH, alwaysAllowBashPatterns: ['^gh pr comment(\\s|$)'] }),
+      pinFor: () => undefined,
+    });
+    expect(r.hookSpecificOutput.permissionDecision).toBe('deny');
+    expect(r.hookSpecificOutput.permissionDecisionReason).toContain('submit_write_draft');
+  });
+
+  it('still denies an unpinned gated write the allowlist refuses', async () => {
     const r = await run({
       hookInput: { tool_name: 'Bash', tool_input: { command: 'git push origin fix' }, session_id: 's1' },
       gatedForAction: () => PUSH,
       pinFor: () => undefined,
     });
     expect(r.hookSpecificOutput.permissionDecision).toBe('deny');
-    expect(r.hookSpecificOutput.permissionDecisionReason).toContain('submit_write_draft');
   });
 
   it('does not let a stray bypass lift the write gate', async () => {
