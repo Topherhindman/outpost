@@ -190,6 +190,13 @@ function fileDigestMismatchReason(): string {
     + 'mcp__outpost__submit_write_draft and wait for a new approval.';
 }
 
+// Without this a driven session got the draft-state reason, which sent it chasing unrelated
+// pending drafts instead of the one change that makes the call approvable
+const DRIVEN_FILE_PAYLOAD = 'The user is driving and can approve this write directly, but its payload '
+  + 'is in a file the approval card cannot display. Run it again with the payload inline instead '
+  + "(e.g. `git commit -m '…'`, `gh pr comment 7 --body '…'`). Pending drafts on this step are "
+  + 'unrelated; there is nothing to wait for.';
+
 function carriesPayloadInline(toolName: string, toolInput: unknown): boolean {
   if (toolName !== 'Bash') return true;
   const command = (toolInput as { command?: unknown } | null)?.command;
@@ -302,9 +309,11 @@ export async function handleHook(opts: HandleHookOpts): Promise<HookResponse> {
       const pin = pinFor?.(hookInput.session_id, hookInput.tool_name, hookInput.tool_input);
       // A driven session has an approver attached, and the card shows the whole payload unless
       // a file flag carries it — that one still needs a draft, whose card renders the body.
-      if (!pin && driven && carriesPayloadInline(hookInput.tool_name, hookInput.tool_input)
-        && allowlist.allows(hookInput.tool_name, hookInput.tool_input, projectCwd, action, worktreePath, hookInput.session_id)) {
-        return enqueue();
+      if (!pin && driven) {
+        if (!carriesPayloadInline(hookInput.tool_name, hookInput.tool_input)) return denyResp(DRIVEN_FILE_PAYLOAD);
+        if (allowlist.allows(hookInput.tool_name, hookInput.tool_input, projectCwd, action, worktreePath, hookInput.session_id)) {
+          return enqueue();
+        }
       }
       const pinMatched = !!pin;
       if (!pin || !allowlist.allows(hookInput.tool_name, hookInput.tool_input, projectCwd, action, worktreePath, hookInput.session_id)) {

@@ -80,7 +80,7 @@ describe('hook — an action session the user is driving', () => {
       pinFor: () => undefined,
     });
     expect(r.hookSpecificOutput.permissionDecision).toBe('deny');
-    expect(r.hookSpecificOutput.permissionDecisionReason).toContain('submit_write_draft');
+    expect(r.hookSpecificOutput.permissionDecisionReason).toContain('payload inline');
   });
 
   it('still denies an unpinned gated write the allowlist refuses', async () => {
