@@ -8,7 +8,7 @@ import type { PinnedCall, WriteDraft } from '../../src/work/write-draft.js';
 
 const SHA = 'b'.repeat(40);
 
-function harness(step: Step, jobPre?: Preapprovals, readiness?: string | Error, global?: { pre?: Preapprovals; merging?: boolean }) {
+function harness(step: Step, jobPre?: Preapprovals, readiness?: string | Error, global?: { pre?: Preapprovals; merging?: boolean; rerun?: string | Error }) {
   let cur: Step = step;
   const resumeRaiser = vi.fn();
   const events: string[] = [];
@@ -30,6 +30,10 @@ function harness(step: Step, jobPre?: Preapprovals, readiness?: string | Error, 
     mergeReadiness: async () => {
       if (readiness instanceof Error) throw readiness;
       return readiness;
+    },
+    rerunReadiness: async () => {
+      if (global?.rerun instanceof Error) throw global.rerun;
+      return global?.rerun;
     },
     preapprovalDefaults: () => global?.pre,
     mergingFromBase: async () => global?.merging ?? false,
@@ -142,5 +146,26 @@ describe('drafts that are never auto-approved', () => {
     await submitDraft(h.host, 'j1', 's1', { ...draft([push]), raisedBy: { kind: 'step' } });
     expect(h.step().state).toBe('gate_pending_approval');
     expect(h.resumeRaiser).not.toHaveBeenCalled();
+  });
+});
+
+describe('a pre-approved CI rerun', () => {
+  const rerun: PinnedCall = { id: 'r1', label: 'rerun', bash: 'gh run rerun 37994209652 --failed' };
+
+  it('is auto-approved once the run checks out', async () => {
+    const h = harness(step(), { rerunCi: true });
+    expect(await submitDraft(h.host, 'j1', 's1', draft([rerun], 'code.fix-ci'))).toEqual({ ok: true, autoApproved: true });
+  });
+
+  it('reaches the user with the reason when the run does not', async () => {
+    const h = harness(step(), { rerunCi: true }, undefined, { rerun: 'run is already on attempt 2' });
+    expect(await submitDraft(h.host, 'j1', 's1', draft([rerun], 'code.fix-ci'))).toEqual({ ok: true });
+    expect(h.step().drafts![0]!.autoApproveMiss).toContain('attempt 2');
+  });
+
+  it('reaches the user when the run cannot be read', async () => {
+    const h = harness(step(), { rerunCi: true }, undefined, { rerun: new Error('gh: HTTP 404') });
+    expect(await submitDraft(h.host, 'j1', 's1', draft([rerun], 'code.fix-ci'))).toEqual({ ok: true });
+    expect(h.step().drafts![0]!.autoApproveMiss).toContain('HTTP 404');
   });
 });

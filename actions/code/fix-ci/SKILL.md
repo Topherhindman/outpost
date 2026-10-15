@@ -19,8 +19,8 @@ or resolved conflicts). CI on the branch is red and has settled — every check 
 reported and at least one failed. Your job: diagnose the failing checks from their
 logs, fix the code *correctly* using what you already know about why it exists, run
 the relevant tests locally, stage the fix, then draft the commit + push for the user's
-approval. If you cannot confidently fix it (infra flake, unclear cause, or a failure that
-isn't a code problem), do NOT guess — report it unfixable and hand it back.
+approval. If you cannot confidently fix it (unclear cause, or a failure that
+isn't a code problem and isn't a flake a rerun clears), do NOT guess — report it unfixable and hand it back.
 
 This is a bound-action round on the controller's own session (`type: "orchestrated"`), so
 `writeGate` (see `~/.outpost/actions/SHARED-write-drafts.md`) sits at the **top level** of `$OUTPOST_ENVELOPE`,
@@ -72,6 +72,17 @@ git add -A
 
 Do not commit yet — that's the draft below.
 
+**If the failure is a flake, not the code** — a registry rate limit, a mirror 404, a runner that
+died mid-job — edit nothing and draft the rerun as the only call, in Step 4:
+
+```
+{ label: "rerun", bash: "gh run rerun <run-id> --failed" }
+```
+
+`<run-id>` is the run in the failing check's URL. Leave off `--repo`: your cwd already names the
+repo, and this exact spelling is what the user's `rerunCi` pre-approval covers — once per run. A
+run that was already re-run and failed again is not a flake; report it unfixable.
+
 **If the fix is a git submodule pin.** A red check whose cause is a stale vendored schema is
 fixed by moving a gitlink, which has its own sanctioned sequence — `git update-index
 --cacheinfo`, and specifically NOT `git -C <path> checkout` / `reset` / `switch` / `cd <path> &&
@@ -113,6 +124,7 @@ append and fast-forward, and neither pinned call spells one.
 
 ```
 # fixed: committed + pushed a fix
+# re-ran: the failure was a flake; re-ran the failed jobs
 # unfixable: could not confidently fix (flake / infra / unclear); include a reason
 ```
 
@@ -130,7 +142,7 @@ mcp__outpost__submit_step_progress({
   jobId: "<$JOB_ID>",
   stepId: "<$STEP_ID>",
   phase: "pr_open",
-  memo: "ci-fix: pushed <commit> fixing <checks> — OR — ci-fix: unfixable, <one-line reason>",
+  memo: "ci-fix: pushed <commit> fixing <checks> — OR — ci-fix: re-ran run <id>, <the flake> — OR — ci-fix: unfixable, <one-line reason>",
   next: { kind: "self-round" }
 })
 ```

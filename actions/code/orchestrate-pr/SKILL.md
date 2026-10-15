@@ -57,7 +57,7 @@ cat "$OUTPOST_ENVELOPE"
 | `dispatches` | Every child you have fanned out: `id`, `action`, `brief`, `status`, `output`, `failure`. |
 | `pr` | The PR facts as the watcher last observed them: `prUrl`, `prState`, `ciState`, `ciChecks[]`, `reviewState`, `mergeable`, `headRefOid`, `comments[]`. |
 | `gateApproved` | `true` once the user has approved a `gate` of yours. Absent until then (§3). |
-| `preapprovals` | What the user pre-approved for this step: `spec` (`gate`/`auto`/`skip`), `push`, `openPr`, `replies`, `merge`, `syncBase`, and `landing` (`merged`/`approved`/`direct`). Always present; all-gated (`spec: "gate"`, every boolean `false`, `landing: "merged"`) is today's behaviour. See §3b. |
+| `preapprovals` | What the user pre-approved for this step: `spec` (`gate`/`auto`/`skip`), `push`, `openPr`, `replies`, `merge`, `syncBase`, `rerunCi`, and `landing` (`merged`/`approved`/`direct`). Always present; all-gated (`spec: "gate"`, every boolean `false`, `landing: "merged"`) is today's behaviour. See §3b. |
 | `baseBranch` | The branch your worktree was cut from — the `--base` of any PR you open, and the target of a `direct` landing. |
 | `prReviewers` | Reviewers the user set in Settings, already narrowed to this repo's org. Absent when none apply. Row 8 passes them as `--reviewer`. |
 | `gateFeedback` | Every note the user has attached to a gate, oldest first. |
@@ -225,6 +225,8 @@ user like any other.
   finds it approved, green, mergeable, at the same head, with nothing unanswered.
 - **`syncBase`** — row 11's bound `code.resolve-conflicts` round commits and pushes its merge of
   `origin/<baseBranch>` without waiting. `push` covers this too.
+- **`rerunCi`** — row 12's bound `code.fix-ci` round re-runs a flaky run's failed jobs without
+  waiting, once per run and only for a run on this step's branch.
 - **`landing: "approved"`** — row 15a: the step is done when the PR is approved and green. A repo
   owner merges it; do not bind `code.merge-pr`.
 - **`landing: "direct"`** — there is no PR. Once the review is clean (rows 5-7 still run), replace

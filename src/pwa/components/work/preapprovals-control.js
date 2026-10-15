@@ -10,6 +10,7 @@ export const WRITES = [
   ['replies', 'Reply to comments', 'Replies on the step’s own PR'],
   ['merge', 'Merge', 'Merging the PR once it’s approved, green and at the same head'],
   ['syncBase', 'Merge base in', 'Committing and pushing a merge of origin/<base> — conflict fixes included'],
+  ['rerunCi', 'Re-run CI', 'Re-running a failed CI run on the step’s branch, once per run'],
 ];
 
 function options(labels, selected) {
@@ -50,6 +51,7 @@ export function readPreapprovalsControl(fieldset) {
     replies: get('replies').checked,
     merge: get('merge').checked,
     syncBase: get('syncBase').checked,
+    rerunCi: get('rerunCi').checked,
     landing: get('landing').value,
   };
 }

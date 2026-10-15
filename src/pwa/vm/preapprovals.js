@@ -1,15 +1,15 @@
 // Mirrors src/work/preapprovals.ts; the daemon re-validates everything this produces.
 
-const GATED = { spec: 'gate', push: false, openPr: false, replies: false, merge: false, syncBase: false, landing: 'merged' };
-const KEYS = ['spec', 'push', 'openPr', 'replies', 'merge', 'syncBase', 'landing'];
+const GATED = { spec: 'gate', push: false, openPr: false, replies: false, merge: false, syncBase: false, rerunCi: false, landing: 'merged' };
+const KEYS = ['spec', 'push', 'openPr', 'replies', 'merge', 'syncBase', 'rerunCi', 'landing'];
 const SPEC_ORDER = ['gate', 'auto', 'skip'];
 const LANDING_ORDER = ['merged', 'approved', 'direct'];
-const LABELS = { push: 'push', openPr: 'open PR', replies: 'replies', merge: 'merge', syncBase: 'merge base in' };
+const LABELS = { push: 'push', openPr: 'open PR', replies: 'replies', merge: 'merge', syncBase: 'merge base in', rerunCi: 're-run CI' };
 
 export const PRESETS = {
   gated: { ...GATED },
-  routine: { spec: 'skip', push: true, openPr: true, replies: true, merge: false, syncBase: false, landing: 'approved' },
-  personal: { spec: 'auto', push: true, openPr: false, replies: false, merge: false, syncBase: false, landing: 'direct' },
+  routine: { spec: 'skip', push: true, openPr: true, replies: true, merge: false, syncBase: false, rerunCi: true, landing: 'approved' },
+  personal: { spec: 'auto', push: true, openPr: false, replies: false, merge: false, syncBase: false, rerunCi: false, landing: 'direct' },
 };
 
 function defined(p) {
@@ -44,7 +44,7 @@ export function summaryLabel(p) {
   const e = effective(p);
   const parts = [];
   if (e.spec !== 'gate') parts.push(`spec ${e.spec}`);
-  for (const k of ['push', 'openPr', 'replies', 'merge', 'syncBase']) if (e[k]) parts.push(LABELS[k]);
+  for (const k of ['push', 'openPr', 'replies', 'merge', 'syncBase', 'rerunCi']) if (e[k]) parts.push(LABELS[k]);
   if (e.landing !== 'merged') parts.push(e.landing);
   return parts.join(' · ');
 }

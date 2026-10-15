@@ -106,6 +106,7 @@
       "^gh issue (create|comment|close|edit)(\\s|$)",
       "^gh release (create|edit|upload)(\\s|$)",
       "^gh workflow run(\\s|$)",
+      "^gh run rerun(\\s|$)",
       "^gh api[^\\n]*(?:--method|-X)(?:[ \\t]+|=)(?:POST|PUT|PATCH|DELETE|post|put|patch|delete)(?:\\s|$)"
     ],
     "alwaysAllowMcpPatterns": [

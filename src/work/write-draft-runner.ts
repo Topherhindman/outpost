@@ -37,6 +37,7 @@ export interface DraftHost {
   journal(action: string, jobId: string, stepId: string, outcome: string, lesson: string): void;
   // Undefined means the PR is ready to merge; a string names the unmet condition.
   mergeReadiness?(jobId: string, stepId: string, prNumber: number, sha: string): Promise<string | undefined>;
+  rerunReadiness?(jobId: string, stepId: string, runId: string): Promise<string | undefined>;
   preapprovalDefaults?(): Preapprovals | undefined;
   mergingFromBase?(stepId: string, baseBranch: string): Promise<boolean>;
   prReviewers?(repoCwd: string): string[];
@@ -189,6 +190,9 @@ async function tryAutoApprove(host: DraftHost, jobId: string, stepId: string, dr
   });
   let miss = coverage.covered ? undefined : coverage.reason;
   if (coverage.covered && coverage.mergeSha) miss = await mergeMiss(host, jobId, stepId, step.pr?.prUrl, coverage.mergeSha);
+  for (const runId of coverage.covered ? coverage.rerunIds ?? [] : []) {
+    miss ??= await rerunMiss(host, jobId, stepId, runId);
+  }
   if (miss === undefined && coverage.covered) {
     const res = await acceptDraft(host, jobId, stepId, draftId, draft.calls, {
       approvedBy: 'preapproval',
@@ -212,6 +216,16 @@ async function mergeMiss(
     return blocker === undefined ? undefined : `not ready to merge: ${blocker}`;
   } catch (e) {
     return `merge readiness check failed: ${(e as Error).message ?? e}`;
+  }
+}
+
+async function rerunMiss(host: DraftHost, jobId: string, stepId: string, runId: string): Promise<string | undefined> {
+  if (!host.rerunReadiness) return 'the run could not be checked';
+  try {
+    const blocker = await host.rerunReadiness(jobId, stepId, runId);
+    return blocker === undefined ? undefined : `not re-running run ${runId}: ${blocker}`;
+  } catch (e) {
+    return `run ${runId} check failed: ${(e as Error).message ?? e}`;
   }
 }
 

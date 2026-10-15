@@ -26,6 +26,7 @@ export interface Preapprovals {
   replies?: boolean;
   merge?: boolean;
   syncBase?: boolean;
+  rerunCi?: boolean;
   landing?: Landing;
 }
 

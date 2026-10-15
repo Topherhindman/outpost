@@ -56,6 +56,29 @@ describe('a setting that is off', () => {
   });
 });
 
+describe('a CI rerun', () => {
+  const rerun = effectivePreapprovals({ rerunCi: true });
+
+  it('covers a bare run id, with or without --failed, and hands back the run to check', () => {
+    expect(classifyDraft([call('gh run rerun 37994209652 --failed')], ctx({ pre: rerun })))
+      .toEqual({ covered: true, settings: ['rerunCi'], rerunIds: ['37994209652'] });
+    expect(classifyDraft([call('gh run rerun 37994209652')], ctx({ pre: rerun }))).toMatchObject({ covered: true });
+  });
+
+  it('needs the setting', () => {
+    expect(classifyDraft([call('gh run rerun 37994209652')], ctx())).toEqual({ covered: false, reason: expect.stringContaining('rerunCi') });
+  });
+
+  it('does not stretch to another repo, a job id, debug logging, or a non-numeric run', () => {
+    for (const bash of [
+      'gh run rerun 37994209652 --repo other/repo', 'gh run rerun --job 123', 'gh run rerun 1 --debug',
+      'gh run rerun main', 'gh run rerun 1 2', 'gh run rerun',
+    ]) {
+      expect(classifyDraft([call(bash)], ctx({ pre: rerun }))).toMatchObject({ covered: false });
+    }
+  });
+});
+
 describe('a merge from the base', () => {
   const sync = effectivePreapprovals({ syncBase: true });
   const draft = [call('git commit --no-edit', 0), call('git push origin deps/bump-ws', 1)];

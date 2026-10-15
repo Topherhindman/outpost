@@ -54,6 +54,7 @@ import {
   submitDraft, type DraftDecisionResult, type DraftHost, type SubmitDraftResult,
 } from './write-draft-runner.js';
 import { readMergeReadiness } from './merge-readiness.js';
+import { readRerunReadiness } from './rerun-readiness.js';
 import { clampToCeiling, describePreapprovals, effectivePreapprovals } from './preapprovals.js';
 import { runGh as defaultRunGh, type RunGh } from '../integrations/gh-cli.js';
 import { gitMergingFromBase } from '../git/git-ops.js';
@@ -1640,6 +1641,7 @@ export class WorkEngine {
       journal: (action, jobId, stepId, outcome, lesson) =>
         this.opts.journalStore?.append({ action, jobId, stepId, outcome, lesson, at: this.ctx.now() }),
       mergeReadiness: (jobId, stepId, prNumber, sha) => this.mergeReadiness(jobId, stepId, prNumber, sha),
+      rerunReadiness: (jobId, stepId, runId) => this.rerunReadiness(jobId, stepId, runId),
       preapprovalDefaults: () => this.opts.preapprovalDefaults?.(),
       prReviewers: (cwd) => reviewersForCwd(this.opts.prReviewers?.() ?? [], cwd),
       noteVerdict: (jobId, stepId, detail) => this.opts.onDraftVerdict?.(jobId, stepId, detail),
@@ -1654,6 +1656,12 @@ export class WorkEngine {
     const s = this.opts.queue.get(jobId)?.steps.find((x) => x.id === stepId);
     if (s?.type !== 'orchestrated' || s.workspace.kind !== 'writable') return 'not a writable PR step';
     return readMergeReadiness(this.opts.runGh ?? defaultRunGh, s.workspace.repoCwd, prNumber, sha, s.pr?.comments);
+  }
+
+  private async rerunReadiness(jobId: string, stepId: string, runId: string): Promise<string | undefined> {
+    const s = this.opts.queue.get(jobId)?.steps.find((x) => x.id === stepId);
+    if (s?.type !== 'orchestrated' || s.workspace.kind !== 'writable') return 'not a writable PR step';
+    return readRerunReadiness(this.opts.runGh ?? defaultRunGh, s.workspace.repoCwd, runId, s.workspace.branch);
   }
 
   // Delivers a WriteDraft denial to the controller. While the step is still parked at the gate

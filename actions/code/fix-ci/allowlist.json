@@ -1,8 +1,7 @@
 {
   "alwaysAllow": [],
   "alwaysAllowBashPatterns": [
-    "^gh pr checks(\\s|$)",
-    "^gh run rerun(?:\\s+(?:--failed|--debug|(?:--job|--repo|-R)(?:\\s+|=)[A-Za-z0-9._/-]+|[0-9]+))*\\s*$"
+    "^gh pr checks(\\s|$)"
   ],
   "alwaysAllowMcpPatterns": [],
   "alwaysAllowPathPatterns": []

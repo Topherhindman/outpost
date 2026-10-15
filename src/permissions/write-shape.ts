@@ -68,6 +68,7 @@ export const WRITE_PROBES: readonly string[] = [
   'yarn publish',
   'pnpm publish',
   'gh workflow run deploy.yml --ref main',
+  'gh run rerun 12345 --failed',
   'gh secret set FOO --body bar',
   'gh repo create org/name --public',
   'gh repo delete org/name --yes',

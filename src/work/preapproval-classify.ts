@@ -4,7 +4,7 @@ import { writeFindings } from '../permissions/dangerous-writes.js';
 import { isValidTmpFilePath, type PinnedCall } from './write-draft.js';
 import type { EffectivePreapprovals } from './preapprovals.js';
 
-export type PreapprovalSetting = 'push' | 'openPr' | 'replies' | 'merge' | 'syncBase';
+export type PreapprovalSetting = 'push' | 'openPr' | 'replies' | 'merge' | 'syncBase' | 'rerunCi';
 
 export interface ClassifyContext {
   pre: EffectivePreapprovals;
@@ -18,14 +18,15 @@ export interface ClassifyContext {
 }
 
 export type DraftCoverage =
-  | { covered: true; settings: PreapprovalSetting[]; mergeSha?: string }
+  | { covered: true; settings: PreapprovalSetting[]; mergeSha?: string; rerunIds?: string[] }
   | { covered: false; reason: string };
 
-type Shape = { setting: PreapprovalSetting; expects: string[]; mergeSha?: string } | { miss: string };
+type Shape = { setting: PreapprovalSetting; expects: string[]; mergeSha?: string; rerunId?: string } | { miss: string };
 
 const REPLY_ENDPOINT = /^repos\/\{owner\}\/\{repo\}\/pulls\/(\d+)\/comments\/(\d+)\/replies$/;
 const SHA_RE = /^[0-9a-f]{40}$/;
 const PR_NUMBER_RE = /^[1-9]\d*$/;
+const RUN_ID_RE = /^[1-9]\d*$/;
 
 // `gh` reads anything but a bare decimal as a branch name, which names some other PR.
 function isPr(word: string | undefined, prNumber: number | undefined): boolean {
@@ -148,6 +149,15 @@ function apiReplyShape(rest: string[], ctx: ClassifyContext): Shape {
   return { setting: 'replies', expects: ['api-write'] };
 }
 
+// Which branch the run belongs to is a fresh read the caller makes; the id alone can't say.
+function runRerunShape(rest: string[]): Shape {
+  const p = parseFlags(rest, { '--failed': false });
+  if (!p || p.positional.length !== 1 || !RUN_ID_RE.test(p.positional[0]!)) {
+    return { miss: 'only `gh run rerun <run-id> [--failed]` is pre-approvable' };
+  }
+  return { setting: 'rerunCi', expects: [], rerunId: p.positional[0]! };
+}
+
 function shapeOf(argv: string[], ctx: ClassifyContext): Shape {
   const [prog, sub, ...rest] = argv;
   if (prog === 'git' && sub === 'commit') return commitShape(rest, ctx);
@@ -156,6 +166,7 @@ function shapeOf(argv: string[], ctx: ClassifyContext): Shape {
   if (prog === 'gh' && sub === 'pr' && rest[0] === 'comment') return prCommentShape(rest.slice(1), ctx);
   if (prog === 'gh' && sub === 'pr' && rest[0] === 'merge') return prMergeShape(rest.slice(1), ctx);
   if (prog === 'gh' && sub === 'api') return apiReplyShape(rest, ctx);
+  if (prog === 'gh' && sub === 'run' && rest[0] === 'rerun') return runRerunShape(rest.slice(1));
   return { miss: 'no pre-approval covers this command' };
 }
 
@@ -176,11 +187,17 @@ function classifyCall(call: PinnedCall, ctx: ClassifyContext): Shape {
 export function classifyDraft(calls: PinnedCall[], ctx: ClassifyContext): DraftCoverage {
   const settings: PreapprovalSetting[] = [];
   let mergeSha: string | undefined;
+  const rerunIds: string[] = [];
   for (const [i, c] of calls.entries()) {
     const shape = classifyCall(c, ctx);
     if ('miss' in shape) return { covered: false, reason: `${c.label ?? `call ${i + 1}`}: ${shape.miss}` };
     if (!settings.includes(shape.setting)) settings.push(shape.setting);
     if (shape.mergeSha) mergeSha = shape.mergeSha;
+    if (shape.rerunId) rerunIds.push(shape.rerunId);
   }
-  return mergeSha ? { covered: true, settings, mergeSha } : { covered: true, settings };
+  return {
+    covered: true, settings,
+    ...(mergeSha ? { mergeSha } : {}),
+    ...(rerunIds.length ? { rerunIds } : {}),
+  };
 }
