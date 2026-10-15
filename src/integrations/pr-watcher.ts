@@ -180,6 +180,13 @@ function ciWorthWaking(prev: PrFacts, next: Partial<PrFacts>): boolean {
   return (next.reviewState ?? prev.reviewState) === 'approved';
 }
 
+// The last check finishing on an already-failing rollup leaves `ciState` unmoved, but it's the settled failure row 9 waits for
+function ciSettledFailing(prev: PrFacts, next: Partial<PrFacts>): boolean {
+  return prev.ciState === 'failure' && next.ciState === 'failure'
+    && !!prev.ciChecks?.some((c) => c.state === 'pending')
+    && !!next.ciChecks && !next.ciChecks.some((c) => c.state === 'pending');
+}
+
 // Which watched signals the freshly polled facts actually moved AND are worth a round. This is
 // the whole of what the watcher tells a controller: what changed, never what it means.
 function changedSignals(
@@ -187,7 +194,7 @@ function changedSignals(
 ): WatchedEvent[] {
   const moved = <K extends keyof PrFacts>(k: K) => next[k] !== undefined && next[k] !== prev[k];
   const events: WatchedEvent[] = [];
-  if (moved('ciState') && ciWorthWaking(prev, next)) events.push('ci');
+  if ((moved('ciState') && ciWorthWaking(prev, next)) || ciSettledFailing(prev, next)) events.push('ci');
   if (moved('reviewState')) events.push('review-state');
   // Mergeability rides on `pr-state`: a PR that just started conflicting is the
   // controller's problem now, and there is no separate signal for it to wait on.

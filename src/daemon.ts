@@ -791,6 +791,7 @@ async function main() {
         )) {
           console.log(`[work] stop session=${sessionId.slice(0,8)} → unresolved-step check armed`);
         }
+        engine.onControllerTurnEnded(sessionId);
       }
       if (!shouldNotify) return;
       const title = findSessionTitle(sessionId);

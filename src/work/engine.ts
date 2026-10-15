@@ -974,6 +974,16 @@ export class WorkEngine {
     this.opts.governor?.turnEnded(sessionId);
   }
 
+  // Re-runs delivery at a controller's turn end: deliverInbox neither delivers nor arms a hold mid-turn
+  onControllerTurnEnded(sessionId: string): void {
+    const role = this.roleBySession.get(sessionId);
+    if (role?.role !== 'step' || !this.jobAcceptsStepWork(role.jobId)) return;
+    const s = this.orchestratedHost().getStep(role.jobId, role.stepId);
+    if (!s || s.sessionId !== sessionId || s.state === 'running') return;
+    deliverInbox(this.orchestratedHost(), role.jobId, role.stepId);
+    this.syncOrchestratedWake(role.jobId, role.stepId);
+  }
+
   // Startup recovery: re-submit the initial orchestrator for any job stuck in `planning` with
   // no orchestrator session — its launch was parked (never fired) when the daemon stopped.
   // Executing jobs recover via the daemon's existing tick()/decide() re-emit for sessionless

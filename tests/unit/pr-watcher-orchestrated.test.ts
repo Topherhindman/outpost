@@ -20,6 +20,8 @@ interface Facts {
   mergeable?: string;
   headRefOid?: string;
   comments?: Array<{ id: string; body: string; author?: string }>;
+  ciChecks?: Array<{ name: string; state: string }>;
+  rollup?: Array<Record<string, string>>;
 }
 
 function orchestratedStepWithPr(pr: Facts) {
@@ -43,7 +45,8 @@ function stubGh(over: Facts = {}, viewer = 'dc') {
     comments: (over.comments ?? []).map((c) => ({
       id: c.id, author: { login: c.author ?? 'devin' }, body: c.body, createdAt: '2026-01-01T00:00:00Z',
     })),
-    ...(over.ciState ? { statusCheckRollup: [ROLLUP[over.ciState]] } : {}),
+    ...(over.rollup ? { statusCheckRollup: over.rollup }
+      : over.ciState ? { statusCheckRollup: [ROLLUP[over.ciState]] } : {}),
     ...(over.reviewState ? { reviewDecision: REVIEW[over.reviewState] } : {}),
     ...(over.mergeable ? { mergeable: over.mergeable.toUpperCase() } : {}),
     ...(over.headRefOid ? { headRefOid: over.headRefOid } : {}),
@@ -367,6 +370,37 @@ describe('PrWatcher — waking only on what the ladder can act on', () => {
       );
       await watcher.syncJob('j1');
       expect(eventsFrom(engine)).toContain('ci');
+    });
+
+    it('wakes when the remaining checks finish on an already-failing rollup', async () => {
+      const { watcher, engine } = harness(
+        orchestratedStepWithPr({
+          ciState: 'failure',
+          ciChecks: [{ name: 'multi', state: 'failure' }, { name: 'file-room', state: 'pending' }],
+        }),
+        { rollup: [
+          { name: 'multi', status: 'COMPLETED', conclusion: 'FAILURE' },
+          { name: 'file-room', status: 'COMPLETED', conclusion: 'FAILURE' },
+        ] },
+      );
+      await watcher.syncJob('j1');
+      expect(eventsFrom(engine)).toContain('ci');
+    });
+
+    it('stays quiet while an already-failing rollup still has checks running', async () => {
+      const { watcher, engine } = harness(
+        orchestratedStepWithPr({
+          ciState: 'failure',
+          ciChecks: [{ name: 'multi', state: 'failure' }, { name: 'file-room', state: 'pending' }, { name: 'stream', state: 'pending' }],
+        }),
+        { rollup: [
+          { name: 'multi', status: 'COMPLETED', conclusion: 'FAILURE' },
+          { name: 'file-room', status: 'COMPLETED', conclusion: 'SUCCESS' },
+          { name: 'stream', status: 'IN_PROGRESS', conclusion: '' },
+        ] },
+      );
+      await watcher.syncJob('j1');
+      expect(eventsFrom(engine)).not.toContain('ci');
     });
 
     // Green with nothing to merge into is the expected case, and row 13 needs the approval too.

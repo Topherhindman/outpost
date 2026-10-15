@@ -4,12 +4,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WorkEngine } from '../../src/work/engine.js';
 import { JobQueue } from '../../src/work/work-queue.js';
+import { EXTERNAL_QUIET_MS } from '../../src/steps/orchestrated-inbox.js';
 import type { OrchestratedStep, ProposedStep } from '../../src/work/work-types.js';
 
 // Minimal harness mirroring orchestrator.test.ts's makeEngine, extended to
 // capture the resumed message content (not just the sessionId/env) so a
 // controller round's dispatch can be asserted.
-function makeEngine(unresolvedGraceMs?: number) {
+function makeEngine(unresolvedGraceMs?: number, now: () => number = () => 1) {
   const dir = mkdtempSync(join(tmpdir(), 'engine-turn-'));
   const queue = new JobQueue(dir);
   const resumed: Array<{ sessionId: string; content: string }> = [];
@@ -33,7 +34,7 @@ function makeEngine(unresolvedGraceMs?: number) {
     queue, sessionManager, worktreeManager, linearWriter, actionsStore,
     jobsDir: join(dir, 'jobs'),
     newId: (() => { let n = 0; return () => `id-${++n}`; })(),
-    now: () => 1,
+    now,
     ...(unresolvedGraceMs === undefined ? {} : { unresolvedGraceMs }),
   });
   return { engine, queue, resumed, working };
@@ -227,5 +228,58 @@ describe('WorkEngine.armUnresolvedCheck — a turn yielded to background subagen
     engine.onStepRetry(jobId, stepId);                  // fresh round, sess-1 is history
     await vi.advanceTimersByTimeAsync(GRACE_MS * 2);
     expect(step().failure).toBeUndefined();
+  });
+});
+
+describe('WorkEngine.onControllerTurnEnded — an inbox item pushed mid-turn', () => {
+  let engine: WorkEngine;
+  let queue: JobQueue;
+  let working: Set<string>;
+  let resumed: Array<{ sessionId: string; content: string }>;
+  let jobId: string;
+  let stepId: string;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    ({ engine, queue, working, resumed } = makeEngine(undefined, () => Date.now()));
+    const job = engine.createJob({ source: 'manual', title: 't', description: 'd' });
+    jobId = job.id;
+    stepId = addOrchestratedStep(engine, jobId).id;
+    queue.mutate(jobId, (j) => ({
+      ...j,
+      state: 'executing',
+      steps: j.steps.map((s) => s.id === stepId ? {
+        ...s, sessionId: 'sess-1', state: 'waiting', waitingOn: { reason: 'r', events: ['ci', 'pr-comments'] },
+      } as OrchestratedStep : s),
+    }));
+    engine.rehydrateSessionBindings();
+  });
+
+  afterEach(() => { vi.useRealTimers(); });
+
+  function step(): OrchestratedStep {
+    return queue.get(jobId)!.steps.find((s) => s.id === stepId) as OrchestratedStep;
+  }
+
+  it('delivers a user message that arrived while the turn was still running', async () => {
+    working.add('sess-1');
+    engine.pushStepInbox(jobId, stepId, { kind: 'user-message', body: 'go' });
+    expect(step().inbox).toHaveLength(1);
+    working.delete('sess-1');
+    engine.onControllerTurnEnded('sess-1');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(step().state).toBe('running');
+    expect(resumed.map((r) => r.sessionId)).toEqual(['sess-1']);
+  });
+
+  it('arms the quiet-period wake for a watcher event that arrived mid-turn', async () => {
+    working.add('sess-1');
+    engine.pushStepInbox(jobId, stepId, { kind: 'external', source: 'pr-watcher', summary: 'CI failure', events: ['ci'] });
+    working.delete('sess-1');
+    engine.onControllerTurnEnded('sess-1');
+    expect(step().state).toBe('waiting');
+    await vi.advanceTimersByTimeAsync(EXTERNAL_QUIET_MS);
+    expect(step().state).toBe('running');
+    expect(step().lastDelivered?.map((i) => i.kind)).toEqual(['external']);
   });
 });
