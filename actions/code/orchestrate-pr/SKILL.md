@@ -188,6 +188,12 @@ reconsider `pr`/`artifacts` from scratch and pick whatever row now matches — o
 that raised the draft, this time reasoning past the fact that the user said no, or row 17 if
 nothing better applies — rather than assuming a redraft is expected.
 
+**A `user-message` asking for a code change also outranks the table.** "Delete that test
+file", "rename this", "drop the fallback" — bind it: `self-round` as `code.implement` with the
+user's request verbatim in `note`. Don't do it on this turn: a decision turn has no `edit`
+permissions, so even an `rm` is denied. Record in `memo` that the round covered that message,
+so the next decision turn doesn't bind it again.
+
 **Rows below the one that matched still matter next turn.** The ladder is a priority order
 re-evaluated from scratch on every decision turn, not a script you walk once. A conflict that
 appears after CI went green sends you back up it. Rows 9-16 all presuppose `pr.prUrl`; until
