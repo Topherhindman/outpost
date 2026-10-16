@@ -57,14 +57,14 @@ describe('PreferencesStore', () => {
   });
 
   describe('getLaunchConcurrency', () => {
-    it('defaults to 1 when absent', () => {
-      expect(new PreferencesStore(newPath()).getLaunchConcurrency()).toBe(1);
+    it('defaults to 5 when absent', () => {
+      expect(new PreferencesStore(newPath()).getLaunchConcurrency()).toBe(5);
     });
 
-    it.each([0, -1, 2.5, 'x', null, {}])('defaults to 1 for invalid value %p', (bad) => {
+    it.each([0, -1, 2.5, 'x', null, {}])('defaults to 5 for invalid value %p', (bad) => {
       const s = new PreferencesStore(newPath());
       s.merge({ launchConcurrency: bad });
-      expect(s.getLaunchConcurrency()).toBe(1);
+      expect(s.getLaunchConcurrency()).toBe(5);
     });
 
     it('passes through a valid integer', () => {

@@ -289,6 +289,33 @@ describe('LaunchGovernor — app-wide queue summary', () => {
     expect(gov.summary()).toMatchObject({ active: 1, slots: 3 });
   });
 
+  it('tapers slots from the ceiling toward one as the 5h window fills, and ignoring usage lifts it', () => {
+    const at5h = (pct: number): TokenUsageSnapshot => ({ ...healthy, five_hour: { used_percentage: pct, resets_at: NOW_S + 3600 } });
+    const { gov, setSnapshot } = harness(healthy, 5);
+    expect(gov.summary().slots).toBe(5);
+    setSnapshot(at5h(40));
+    expect(gov.summary().slots).toBe(5);
+    setSnapshot(at5h(60));
+    expect(gov.summary().slots).toBe(3);
+    setSnapshot(at5h(78));
+    expect(gov.summary().slots).toBe(1);
+    gov.ignoreBudget(60 * 60_000);
+    expect(gov.summary().slots).toBe(5);
+  });
+
+  it('tapers on the 7d projection, and opens slots on a usage update', () => {
+    // 50% used with 3 days left projects to ~88% of the 90% target.
+    const tight: TokenUsageSnapshot = { ...healthy, seven_day: { used_percentage: 50, resets_at: NOW_S + 3 * 86400 } };
+    const { gov, fired, makeReq, setSnapshot } = harness(tight, 5);
+    expect(gov.summary().slots).toBe(1);
+    gov.submit(makeReq({ key: 'j1#a', sessionId: 'a' }));
+    gov.submit(makeReq({ key: 'j2#b', sessionId: 'b', jobId: 'j2' }));
+    expect(fired).toEqual(['a']);
+    setSnapshot(healthy);
+    gov.onUsageSnapshot();
+    expect(fired).toEqual(['a', 'b']);
+  });
+
   it('forceFireAll launches everything parked', () => {
     const { gov, makeReq, fired } = harness(overBudget, 4);
     gov.submit(makeReq({ key: 'j1#a', sessionId: 'a' }));

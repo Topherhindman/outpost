@@ -193,10 +193,10 @@ function renderModelDefaults(mount) {
   `);
   const concurrencySection = block(body, 'Autonomous launch concurrency', `
     <div class="settings-row">
-      <label class="settings-row-label" for="settings-launch-concurrency">Jobs launched at once</label>
+      <label class="settings-row-label" for="settings-launch-concurrency">Max jobs launched at once</label>
       <input class="settings-row-input" id="settings-launch-concurrency" type="number" min="1" step="1" inputmode="numeric" />
     </div>
-    <p class="settings-note">How many token-scheduled jobs run at once. Higher spends tokens faster; 1 finishes one at a time.</p>
+    <p class="settings-note">The most jobs run at once while usage is light. Past half of the 5h or 7d limit, slots taper down to 1 at the limit.</p>
   `);
 
   function paintModel() {

@@ -39,7 +39,7 @@ export class PreferencesStore {
   // stays opaque.
   getLaunchConcurrency(): number {
     const raw = (this.get() as { launchConcurrency?: unknown }).launchConcurrency;
-    return Number.isInteger(raw) && (raw as number) >= 1 ? (raw as number) : 1;
+    return Number.isInteger(raw) && (raw as number) >= 1 ? (raw as number) : 5;
   }
 
   // The user's pause on the job launch queue. Absent reads as running.

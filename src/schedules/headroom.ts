@@ -83,19 +83,39 @@ export function evaluateHeadroom(snapshot: TokenUsageSnapshot | undefined, now: 
 const JOB_BUDGET_TARGET = 90;
 const MIN_RATE_SPAN_MS = 24 * 60 * 60 * 1000;
 
+function projectedSevenDay(seven: TokenWindowUsage, msUntilReset: number): number {
+  const elapsedMs = Math.max(0, SEVEN_DAY_MS - msUntilReset);
+  return seven.used_percentage + (seven.used_percentage / Math.max(elapsedMs, MIN_RATE_SPAN_MS)) * msUntilReset;
+}
+
 export function evaluateJobBudget(snapshot: TokenUsageSnapshot | undefined, now: number): HeadroomDecision {
   const w = sevenDayWindow(snapshot, now);
   if ('code' in w) return w;
   const { seven, msUntilReset } = w;
-  const elapsedMs = Math.max(0, SEVEN_DAY_MS - msUntilReset);
-  const projected = seven.used_percentage
-    + (seven.used_percentage / Math.max(elapsedMs, MIN_RATE_SPAN_MS)) * msUntilReset;
+  const projected = projectedSevenDay(seven, msUntilReset);
   const used = Math.round(seven.used_percentage);
   const until = humanizeMs(msUntilReset);
   if (projected >= JOB_BUDGET_TARGET) {
     return { launch: false, reason: `Waiting — 7d on course for ${Math.round(projected)}% by reset (${used}% used, ${until} left)`, code: 'over-budget' };
   }
   return { launch: true, reason: `Budget — 7d on course for ${Math.round(projected)}% by reset`, code: 'ok' };
+}
+
+// Below this fraction of either limit, every slot is open; past it, slots shrink linearly to one
+// at the limit. Spending freely early is the point — the budget gate still closes at the limit.
+const SLOT_TAPER_FROM = 0.5;
+
+// How many job slots to run with `max` configured: the tighter of the 5h window (against its
+// ceiling) and the 7d projection (against the jobs' target) tapers it down toward one.
+export function launchSlots(max: number, snapshot: TokenUsageSnapshot | undefined, now: number): number {
+  const w = sevenDayWindow(snapshot, now);
+  if ('code' in w) return w.code === 'five-hour-ceiling' ? 1 : max;
+  const pressure = Math.max(
+    snapshot!.five_hour!.used_percentage / FIVE_HOUR_CEILING,
+    projectedSevenDay(w.seven, w.msUntilReset) / JOB_BUDGET_TARGET,
+  );
+  const taper = Math.min(1, Math.max(0, (pressure - SLOT_TAPER_FROM) / (1 - SLOT_TAPER_FROM)));
+  return Math.max(1, Math.round(max - (max - 1) * taper));
 }
 
 const OPENING_STEP_MS = 15 * 60_000;

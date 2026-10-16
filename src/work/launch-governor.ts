@@ -1,4 +1,4 @@
-import { evaluateJobBudget, nextOpening, type TokenUsageSnapshot } from '../schedules/headroom.js';
+import { evaluateJobBudget, launchSlots, nextOpening, type TokenUsageSnapshot } from '../schedules/headroom.js';
 
 // `user` is an explicit click (Launch orchestrator, replan, redraft) and always fires. `immediate`
 // (a high-priority job, a reactive round like fix-ci) skips the budget and the slot cap but not a
@@ -28,6 +28,7 @@ export interface LaunchGovernorDeps {
   isPaused?: () => boolean;
   setPaused?: (paused: boolean) => void;
   getSnapshot: () => TokenUsageSnapshot | undefined;
+  // The configured slot ceiling; usage tapers the live count down from it toward one.
   getConcurrency: () => number;
   now?: () => number;
   onChange?: () => void;
@@ -40,7 +41,7 @@ export interface LaunchGovernorDeps {
 export interface LaunchQueueSummary {
   paused: boolean;
   parked: number;
-  // Turns holding a slot right now, and the configured cap. `active` can exceed `slots`: a user
+  // Turns holding a slot right now, and the cap after usage tapering. `active` can exceed `slots`: a user
   // launch and an `immediate` take a slot without waiting for one.
   active: number;
   slots: number;
@@ -93,8 +94,14 @@ export class LaunchGovernor {
     return b.ok || !this.ignoringBudget() ? b : { ok: true, reason: 'Usage limit ignored' };
   }
 
+  // Ignoring the budget also lifts the taper — both are the same "usage" the user waved off.
+  private slots(): number {
+    const max = this.deps.getConcurrency();
+    return this.ignoringBudget() ? max : launchSlots(max, this.deps.getSnapshot(), this.now());
+  }
+
   private slotOk(): boolean {
-    return this.active.size < this.deps.getConcurrency();
+    return this.active.size < this.slots();
   }
 
   private paused(): boolean {
@@ -171,7 +178,7 @@ export class LaunchGovernor {
     const paused = this.paused();
     const occupancy = {
       active: this.active.size,
-      slots: this.deps.getConcurrency(),
+      slots: this.slots(),
       blocker: this.budget().blocker,
       ignoreBudgetUntil: this.ignoringBudget() ? this.ignoreBudgetUntil : null,
     };
@@ -250,7 +257,7 @@ export class LaunchGovernor {
   // Bare reason — the "Queued — " prefix is added once by the PWA (vm/tracked.js).
   private queuedReason(): string {
     if (this.paused()) return 'Job queue paused';
-    if (!this.slotOk()) return `${this.active.size}/${this.deps.getConcurrency()} slots busy`;
+    if (!this.slotOk()) return `${this.active.size}/${this.slots()} slots busy`;
     return this.headroom().reason;
   }
 

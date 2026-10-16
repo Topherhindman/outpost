@@ -57,7 +57,7 @@ function loadEditorCommand() {
 }
 function loadLaunchConcurrency() {
   const v = Number(localStorage.getItem('cr:launchConcurrency'));
-  return Number.isInteger(v) && v >= 1 ? v : 1;
+  return Number.isInteger(v) && v >= 1 ? v : 5;
 }
 // Mirrors the daemon's own default (preferences-store.ts) — off until turned on. The mirror
 // only decides whether the composer treats `!` as a command; the daemon enforces it either way.
