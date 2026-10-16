@@ -298,7 +298,7 @@ export async function gitCreateBranch(cwd: string, newBranch: string): Promise<G
 
 // Pushes with --set-upstream first so a brand-new branch exists on origin before gh reads it.
 // On success, `url` holds the PR URL.
-export async function gitOpenPr(cwd: string, opts?: { base?: string; title?: string; body?: string; reviewers?: string[] }): Promise<GitCommandResult & { url?: string }> {
+export async function gitOpenPr(cwd: string, opts?: { base?: string; title?: string; body?: string; reviewers?: string[] }): Promise<GitCommandResult & { url?: string; warning?: string }> {
   const branch = readCurrentBranch(cwd);
   if (!branch) {
     return { ok: false, stdout: '', stderr: 'detached HEAD — cannot open PR', exitCode: 1 };
@@ -309,7 +309,7 @@ export async function gitOpenPr(cwd: string, opts?: { base?: string; title?: str
   const pushResult = await runGit(cwd, ['push', '--set-upstream', 'origin', branch]);
   if (!pushResult.ok) return pushResult;
   // --fill autopopulates title/body from commit messages.
-  const args = ['pr', 'create', '--head', branch];
+  const args = ['--head', branch];
   if (opts?.base) {
     if (!BRANCH_NAME_RE.test(opts.base)) {
       return { ok: false, stdout: '', stderr: `invalid base branch: ${opts.base}`, exitCode: 1 };
@@ -319,19 +319,27 @@ export async function gitOpenPr(cwd: string, opts?: { base?: string; title?: str
   if (opts?.title) args.push('--title', opts.title); else args.push('--fill');
   if (opts?.body) args.push('--body', opts.body);
   args.push(...reviewerArgs(opts?.reviewers));
+  return ghPrCreate(cwd, args);
+}
+
+// `gh pr create` prints the URL before requesting reviewers, so a reviewer failure exits non-zero
+// on a PR that is already open — that is an opened PR with a `warning`, not a failed open
+async function ghPrCreate(cwd: string, args: string[]): Promise<GitCommandResult & { url?: string; warning?: string }> {
   try {
-    const { stdout, stderr } = await execFileP('gh', args, { cwd, maxBuffer: MAX_BUFFER, timeout: 30_000 });
-    const url = stdout.toString().trim().split('\n').reverse().find((l) => l.startsWith('http')) ?? '';
-    return { ok: true, stdout: stdout.toString(), stderr: stderr.toString(), exitCode: 0, url };
+    const { stdout, stderr } = await execFileP('gh', ['pr', 'create', ...args], { cwd, maxBuffer: MAX_BUFFER, timeout: 30_000 });
+    return { ok: true, stdout: stdout.toString(), stderr: stderr.toString(), exitCode: 0, url: prUrlIn(stdout.toString()) };
   } catch (err) {
     const e = err as { stdout?: Buffer | string; stderr?: Buffer | string; code?: number };
-    return {
-      ok: false,
-      stdout: e.stdout?.toString() ?? '',
-      stderr: e.stderr?.toString() ?? (err as Error).message,
-      exitCode: typeof e.code === 'number' ? e.code : 1,
-    };
+    const stdout = e.stdout?.toString() ?? '';
+    const stderr = e.stderr?.toString() ?? (err as Error).message;
+    const url = prUrlIn(stdout);
+    if (url) return { ok: true, stdout, stderr, exitCode: 0, url, warning: stderr.trim() };
+    return { ok: false, stdout, stderr, exitCode: typeof e.code === 'number' ? e.code : 1 };
   }
+}
+
+function prUrlIn(stdout: string): string {
+  return stdout.trim().split('\n').reverse().find((l) => l.startsWith('http')) ?? '';
 }
 
 export interface FinalizeSquashMergeOpts {
@@ -495,7 +503,7 @@ export async function gitPrDraftContext(cwd: string, base: string, maxDiff = 60_
 
 // Collapses commits since baseBranch, pushes to origin under newBranch, opens a PR.
 // On success, `url` holds the PR URL.
-export async function gitFinalizeSquashToBranch(opts: FinalizeSquashToBranchOpts): Promise<GitCommandResult & { url?: string }> {
+export async function gitFinalizeSquashToBranch(opts: FinalizeSquashToBranchOpts): Promise<GitCommandResult & { url?: string; warning?: string }> {
   if (typeof opts.message !== 'string' || opts.message.trim().length === 0) {
     return { ok: false, stdout: '', stderr: 'commit message required', exitCode: 1 };
   }
@@ -519,25 +527,14 @@ export async function gitFinalizeSquashToBranch(opts: FinalizeSquashToBranchOpts
   if (!commit.ok) return commit;
   const push = await runGit(opts.worktreePath, ['push', '-u', 'origin', `HEAD:refs/heads/${opts.newBranch}`]);
   if (!push.ok) return push;
-  try {
-    const { stdout, stderr } = await execFileP(
-      'gh',
-      ['pr', 'create', '--head', opts.newBranch, '--base', opts.baseBranch,
-        ...(opts.pr ? ['--title', opts.pr.title, '--body', opts.pr.body] : ['--fill']),
-        ...reviewerArgs(opts.reviewers)],
-      { cwd: opts.worktreePath, maxBuffer: MAX_BUFFER, timeout: 30_000 },
-    );
-    const url = stdout.toString().trim().split('\n').reverse().find((l) => l.startsWith('http')) ?? '';
-    return { ok: true, stdout: `${commit.stdout}\n${push.stdout}\n${stdout}`, stderr: `${commit.stderr}\n${push.stderr}\n${stderr}`, exitCode: 0, url };
-  } catch (err) {
-    const e = err as { stdout?: Buffer | string; stderr?: Buffer | string; code?: number };
-    return {
-      ok: false,
-      stdout: `${commit.stdout}\n${push.stdout}\n${e.stdout?.toString() ?? ''}`,
-      stderr: e.stderr?.toString() ?? (err as Error).message,
-      exitCode: typeof e.code === 'number' ? e.code : 1,
-    };
-  }
+  const pr = await ghPrCreate(opts.worktreePath, ['--head', opts.newBranch, '--base', opts.baseBranch,
+    ...(opts.pr ? ['--title', opts.pr.title, '--body', opts.pr.body] : ['--fill']),
+    ...reviewerArgs(opts.reviewers)]);
+  return {
+    ...pr,
+    stdout: `${commit.stdout}\n${push.stdout}\n${pr.stdout}`,
+    stderr: pr.ok ? `${commit.stderr}\n${push.stderr}\n${pr.stderr}` : pr.stderr,
+  };
 }
 
 // True iff origin already has this branch — i.e. a PR is (or was) open on it, so a
@@ -582,27 +579,16 @@ async function branchHasOpenPr(cwd: string, branch: string): Promise<boolean> {
 // Open a PR for a branch that's already been pushed (used to self-heal an append when
 // the branch is on origin but no PR exists). Unlike gitOpenPr this does NOT push — the
 // caller's fast-forward push already ran.
-async function gitOpenPrForPushedBranch(cwd: string, branch: string, baseBranch: string, push: GitCommandResult, reviewers?: string[]): Promise<GitCommandResult & { url?: string }> {
+async function gitOpenPrForPushedBranch(cwd: string, branch: string, baseBranch: string, push: GitCommandResult, reviewers?: string[]): Promise<GitCommandResult & { url?: string; warning?: string }> {
   if (!BRANCH_NAME_RE.test(baseBranch)) {
     return { ok: false, stdout: push.stdout, stderr: 'invalid base branch', exitCode: 1 };
   }
-  try {
-    const { stdout, stderr } = await execFileP(
-      'gh',
-      ['pr', 'create', '--head', branch, '--base', baseBranch, '--fill', ...reviewerArgs(reviewers)],
-      { cwd, maxBuffer: MAX_BUFFER, timeout: 30_000 },
-    );
-    const url = stdout.toString().trim().split('\n').reverse().find((l) => l.startsWith('http')) ?? '';
-    return { ok: true, stdout: `${push.stdout}\n${stdout}`, stderr: `${push.stderr}\n${stderr}`, exitCode: 0, url };
-  } catch (err) {
-    const e = err as { stdout?: Buffer | string; stderr?: Buffer | string; code?: number };
-    return {
-      ok: false,
-      stdout: `${push.stdout}\n${e.stdout?.toString() ?? ''}`,
-      stderr: e.stderr?.toString() ?? (err as Error).message,
-      exitCode: typeof e.code === 'number' ? e.code : 1,
-    };
-  }
+  const pr = await ghPrCreate(cwd, ['--head', branch, '--base', baseBranch, '--fill', ...reviewerArgs(reviewers)]);
+  return {
+    ...pr,
+    stdout: `${push.stdout}\n${pr.stdout}`,
+    stderr: pr.ok ? `${push.stderr}\n${pr.stderr}` : pr.stderr,
+  };
 }
 
 // Follow-up round on an already-open PR: the round's commits are already stacked on the
@@ -616,7 +602,7 @@ async function gitOpenPrForPushedBranch(cwd: string, branch: string, baseBranch:
 // gitFinalizeSquashToBranch that pushed the branch but then had `gh pr create` fail. Left
 // alone, every retry lands here, pushes a no-op, and reports success without ever opening
 // the PR. So after the push, if no open PR exists, we open one and return its url.
-export async function gitFinalizeAppendToBranch(opts: { worktreePath: string; branch: string; baseBranch: string; reviewers?: string[] }): Promise<GitCommandResult & { url?: string }> {
+export async function gitFinalizeAppendToBranch(opts: { worktreePath: string; branch: string; baseBranch: string; reviewers?: string[] }): Promise<GitCommandResult & { url?: string; warning?: string }> {
   if (!BRANCH_NAME_RE.test(opts.branch)) {
     return { ok: false, stdout: '', stderr: 'invalid branch name', exitCode: 1 };
   }

@@ -439,7 +439,7 @@ export function registerGitRoutes(server: Server, deps: GitRoutesDeps): void {
       // Only the squash path opens a PR; an append fast-forwards one that's already there.
       if (!exists) engine.markPrOpening(sessionId);
       const reviewers = reviewersForCwd(preferencesStore.getPrReviewers(), rec.worktreePath);
-      const result: GitCommandResult & { url?: string } = exists
+      const result: GitCommandResult & { url?: string; warning?: string } = exists
         ? await gitFinalizeAppendToBranch({ worktreePath: rec.worktreePath, branch: payload.newBranch, baseBranch, reviewers })
         : await gitFinalizeSquashToBranch({ worktreePath: rec.worktreePath, baseBranch, baseRef: diffBaseFor(rec), newBranch: payload.newBranch, message, reviewers, ...(pr ? { pr } : {}) });
       if (!exists) engine.finishPrOpening(sessionId, result.ok ? result.url : undefined);

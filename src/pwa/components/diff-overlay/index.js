@@ -20,7 +20,7 @@ import { sessions } from '../../state/sessions.js';
 import { work } from '../../state/work.js';
 import { isDesktop } from '../../layout/index.js';
 import { keymap } from '../../state/keymap.js';
-import { installAppBridge } from '../../app-bridge.js';
+import { installAppBridge, showStatusToast } from '../../app-bridge.js';
 import { registerBackHandler } from '../mobile-shell/history.js';
 import { draftCommitMessage } from '../../utils/commit-message.js';
 import {
@@ -1439,6 +1439,7 @@ async function doFinalize(sessionId, payload) {
     // don't claim "PR opened" in that case (only a fresh open / self-heal carries a url).
     const okMsg = payload.kind === 'merge-to-base' ? 'Merged.' : (body.url ? 'PR opened.' : 'Pushed to PR.');
     setSourceFeedback('ok', okMsg, body.url || null);
+    if (body.warning) showStatusToast(`PR opened, but: ${body.warning}`);
     try { await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/archive`, { method: 'POST' }); } catch { /* manual archive fallback */ }
     closeDiffOverlay();
     _deps.leaveSession();
