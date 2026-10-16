@@ -155,6 +155,7 @@ export function renderDetail(mount) {
       autoApplied: actions.get().autoApplied,
       scheduleDrafts: schedulesStore.get().draftBySession,
       runs: runs.get().runs,
+      openingWaits: work.get().openingWaits,
       now,
     });
     const all = GROUPS.flatMap((g) => board[g]);

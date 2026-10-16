@@ -14,6 +14,8 @@ const initial = {
   lastLinearSyncAt: null,
   // The governor's app-wide queue (LaunchQueueSummary) — rides GET /api/work/jobs.
   launchQueue: null,
+  // `${jobId}:${stepId}` of meta.wait steps whose session is being provisioned.
+  openingWaits: new Set(),
 };
 
 const store = createStore(initial);
@@ -165,6 +167,27 @@ export const work = {
   async acceptDraft(id, stepId, draftId, calls) { return workApi.acceptDraft(id, stepId, draftId, calls); },
   async reviseDraft(id, stepId, draftId, feedback) { return workApi.reviseDraft(id, stepId, draftId, feedback); },
   async denyDraft(id, stepId, draftId, reason) { return workApi.denyDraft(id, stepId, draftId, reason); },
+  // Provisioning the wait's workspace can take seconds, so the step shows a connecting frame
+  // until the response lands. `beforeMount` runs before the job carrying manualSession is
+  // merged, since that merge is what mounts the session.
+  async openWaitSession(id, stepId, cwd, beforeMount) {
+    const key = `${id}:${stepId}`;
+    const withOpening = (s, on) => {
+      const openingWaits = new Set(s.openingWaits);
+      if (on) openingWaits.add(key); else openingWaits.delete(key);
+      return { ...s, openingWaits };
+    };
+    store.set((s) => withOpening(s, true));
+    let res;
+    try {
+      res = await workApi.openWaitSession(id, stepId, cwd);
+      beforeMount?.(res);
+    } finally {
+      store.set((s) => withOpening(res?.job ? mergeOne(s, res.job) : s, false));
+    }
+    return res;
+  },
+  isOpeningWait(id, stepId) { return store.get().openingWaits.has(`${id}:${stepId}`); },
   async setPriority(id, highPriority) { return call(() => workApi.setJobPriority(id, highPriority)); },
   async syncJob(id) {
     store.set((s) => ({ ...s, syncingJobId: id, error: null }));

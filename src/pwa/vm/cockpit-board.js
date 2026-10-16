@@ -55,7 +55,7 @@ function jobFeeds(j) {
   return feeds;
 }
 
-function jobActions(j, pendingApprovals) {
+function jobActions(j, pendingApprovals, openingWaits) {
   const out = [];
   const live = j.live ?? NO_LIVE;
   const driven = new Set(live.interactiveSessionIds ?? []);
@@ -71,7 +71,10 @@ function jobActions(j, pendingApprovals) {
     if (s.type === 'orchestrated' && s.gate) out.push({ kind: 'gate', stepId: s.id, phase: s.phase ?? null, question: s.gate.question ?? '' });
     for (const d of s.drafts ?? []) if (draftAwaitsUser(s, d)) out.push({ kind: 'draft', stepId: s.id, draftId: d.id });
     if (s.type === 'action' && s.state === 'waiting' && s.resumeAt == null) {
-      out.push({ kind: 'wait', stepId: s.id, reason: s.inputs?.reason ? String(s.inputs.reason) : '', session: s.manualSession ?? null });
+      out.push({
+        kind: 'wait', stepId: s.id, reason: s.inputs?.reason ? String(s.inputs.reason) : '',
+        session: s.manualSession ?? null, opening: openingWaits.has(`${j.id}:${s.id}`),
+      });
     }
   }
   const push = implementAwaitingPush(j);
@@ -144,8 +147,8 @@ function idleText(j, feeds) {
   return pr ? `PR #${pr} · ${line}` : line;
 }
 
-function jobRow(j, pendingApprovals) {
-  const actions = jobActions(j, pendingApprovals);
+function jobRow(j, pendingApprovals, openingWaits) {
+  const actions = jobActions(j, pendingApprovals, openingWaits);
   const feeds = jobFeeds(j);
   const onlyFailed = actions.length > 0 && actions.every((a) => a.kind === 'failed');
   let tone;
@@ -212,12 +215,13 @@ const byTime = (a, b) => b.time - a.time;
 
 export function cockpitBoard({
   jobs = [], projects = [], slices = new Map(), pendingApprovals = [], localEngaged = new Map(),
-  actionEdits = [], scheduleDrafts = new Map(), runs = [], autoApplied = [], now = Date.now(),
+  actionEdits = [], scheduleDrafts = new Map(), runs = [], autoApplied = [], openingWaits = new Set(),
+  now = Date.now(),
 } = {}) {
   const started = [], notStarted = [], backlog = [];
   for (const j of jobs) {
     if (j.state === 'done' || j.state === 'abandoned') continue;
-    const row = jobRow(j, pendingApprovals);
+    const row = jobRow(j, pendingApprovals, openingWaits);
     if (planIsLive(j)) started.push(row);
     else if (isBacklog(j)) backlog.push(row);
     else notStarted.push(row);

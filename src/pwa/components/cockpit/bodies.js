@@ -53,7 +53,8 @@ const ACTION_HTML = {
         ${sessionLabel ? `<button type="button" class="o-btn o-btn--default" data-ckb-body="wait-session" data-step-id="${escapeHtml(a.stepId)}">${escapeHtml(sessionLabel)}</button>` : ''}
         <button type="button" class="o-btn o-btn--danger" data-ckb-body="abandon">Abandon job</button>
       </div>
-      ${a.session ? `<div class="ckb-session" data-ckb-session="${escapeHtml(a.session.id)}" data-ckb-session-cwd="${escapeHtml(a.session.cwd)}"></div>` : ''}`;
+      ${a.session ? `<div class="ckb-session" data-ckb-session="${escapeHtml(a.session.id)}" data-ckb-session-cwd="${escapeHtml(a.session.cwd)}"></div>` : ''}
+      ${a.opening ? '<div class="ckb-session"><div class="sv-empty">Connecting…</div></div>' : ''}`;
   },
   stall(job, a) {
     return `<div class="ckb-body-actions"><button type="button" class="o-btn o-btn--primary" data-ckb-body="${a.auth ? 'sign-in' : 'resume-stalled'}">${a.auth ? 'Sign in' : 'Resume'}</button></div>`;

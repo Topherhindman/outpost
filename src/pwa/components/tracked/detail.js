@@ -421,7 +421,7 @@ export function renderTrackedDetail(root, jobId) {
   // job record and change what the comment threads render, without touching job.updatedAt.
   // worktreeChanges.version is the same story for the diff button's variant, and only moves
   // when a re-read actually returns a different count.
-  const paintKey = `${job.id}:${job.updatedAt}:${work.get().syncingJobId === job.id}:${editing}:${job.highPriority}:${JSON.stringify(job.launchStatus ?? null)}:${JSON.stringify(job.live ?? null)}:${prPatches.get().version}:${worktreeChanges.get().version}`;
+  const paintKey = `${job.id}:${job.updatedAt}:${work.get().syncingJobId === job.id}:${editing}:${job.highPriority}:${JSON.stringify(job.launchStatus ?? null)}:${JSON.stringify(job.live ?? null)}:${prPatches.get().version}:${worktreeChanges.get().version}:${[...work.get().openingWaits].join(',')}`;
   if (root.__tkPaintKey === paintKey && root.querySelector('.tk-shell')) return;
   root.__tkPaintKey = paintKey;
 

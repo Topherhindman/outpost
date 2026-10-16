@@ -503,7 +503,7 @@ export function registerJobsRoutes(server: Server, deps: JobsRoutesDeps): void {
       const opened = await engine.openWaitSession(m[1]!, m[2]!, cwd);
       res.statusCode = 200;
       res.setHeader('content-type', 'application/json');
-      res.end(JSON.stringify(opened));
+      res.end(JSON.stringify({ ...opened, job: jobQueue.get(m[1]!) ?? null }));
     } catch (e) {
       res.statusCode = e instanceof WaitSessionError ? e.status : 500;
       res.end((e as Error).message);

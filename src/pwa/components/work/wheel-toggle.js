@@ -1,5 +1,5 @@
 import { escapeHtml } from '../session-view/html.js';
-import { inlineWaitSession } from './wait-session.js';
+import { inlineWaitSession, waitSessionOpening } from './wait-session.js';
 
 // Is the user driving this session right now? Server-derived (job.live.interactiveSessionIds,
 // see src/work/job-liveness.ts) rather than client state, so every surface showing the job
@@ -32,6 +32,15 @@ export function stepFeedHtml(job, s) {
       </div>
       <div class="step-inline-session-mount step-inline-session-mount--driven"
         data-session-id="${escapeHtml(wait.id)}" data-step-id="${escapeHtml(s.id)}"></div>
+    </div>`;
+  }
+  if (waitSessionOpening(job, s)) {
+    return `
+    <div class="step-drive">
+      <div class="step-drive-bar"><span class="step-drive-label">Your session</span></div>
+      <div class="step-inline-session-mount step-inline-session-mount--driven">
+        <div class="sv-empty">Connecting…</div>
+      </div>
     </div>`;
   }
   if (!s.sessionId) return '';
