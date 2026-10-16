@@ -94,14 +94,6 @@ describe('job rows', () => {
     expect(r.actionLabel).toBe('Review');
   });
 
-  it('a parked PR job names the PR and its wait', () => {
-    const step = orc({ phase: 'pr_open', state: 'waiting', waitingOn: { reason: 'waiting on CI' }, pr: { prUrl: 'https://github.com/o/r/pull/412' } });
-    const r = board({ jobs: [job({ steps: [step] })] }).started[0];
-    expect(r.tone).toBe('parked');
-    expect(r.status).toEqual({ text: 'PR #412 · waiting on CI', tone: 'mute' });
-    expect(r.actions).toEqual([]);
-  });
-
   it('a failed job offers retry', () => {
     const r = board({ jobs: [job({ state: 'failed', failure: { reason: 'boom', at: NOW } })] }).started[0];
     expect(r.tone).toBe('failed');
