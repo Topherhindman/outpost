@@ -1035,7 +1035,10 @@ export class WorkEngine {
   // to be mid-flight. That also makes allStepsResolved() true, so the Linear done-write
   // rides the same mark-linear-state transition organic completion uses — hence the tick
   // rather than a second setState call here.
-  async markJobDone(jobId: string): Promise<void> {
+  async markJobDone(
+    jobId: string,
+    by: { who: 'user' | 'system'; body: string } = { who: 'user', body: 'marked done by user' },
+  ): Promise<void> {
     const j = this.opts.queue.get(jobId);
     if (!j) return;
     if (j.state === 'done') return;
@@ -1047,7 +1050,7 @@ export class WorkEngine {
       steps: jj.steps.map((s) => (s.cancelled || handlerFor(s).isResolved(s)
         ? s
         : ({ ...s, cancelled: true, updatedAt: now } as Step))),
-    }, { kind: 'state_changed', who: 'user', body: 'marked done by user' }));
+    }, { kind: 'state_changed', ...by }));
     void this.tickOne(jobId);
   }
 

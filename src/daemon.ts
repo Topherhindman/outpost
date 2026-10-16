@@ -648,6 +648,10 @@ async function main() {
     homeDir: homedir(),
     createExternalJob: (input) => engine.createExternalJob(input),
     postPlan: (jobId, steps) => engine.onPlanReady(jobId, 'initial', steps),
+    unapprovedReviews: () => jobQueue.list()
+      .filter((j) => j.source === 'pr-review' && (j.state === 'planning' || j.state === 'plan_pending_review'))
+      .flatMap((j) => (j.externalRef?.url ? [{ jobId: j.id, url: j.externalRef.url }] : [])),
+    settle: (jobId, prState) => engine.markJobDone(jobId, { who: 'system', body: `PR ${prState} before the review started` }),
   });
   nativeHandlers.register('review-intake', () => reviewIntake.runOnce());
 

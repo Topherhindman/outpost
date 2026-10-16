@@ -16,19 +16,29 @@ interface HarnessOpts {
   projects?: Record<string, string | null>;
   existing?: string[];
   postPlan?: (jobId: string, steps: ProposedStep[]) => void;
+  unapproved?: Array<{ jobId: string; url: string }>;
+  prStates?: Record<string, string | Error>;
 }
 
 function harness(opts: HarnessOpts) {
   const calls: string[][] = [];
   const created: string[] = [];
   const plans = new Map<string, ProposedStep[]>();
+  const settled: Array<[string, string]> = [];
   const existing = new Set(opts.existing ?? []);
   const intake = new ReviewIntake({
     settings: () => ({ repos: opts.repos ?? [], reviewRequested: opts.reviewRequested ?? false }),
     projects: () => Object.keys(opts.projects ?? {}),
     homeDir: '/home/testuser',
+    unapprovedReviews: () => opts.unapproved ?? [],
+    settle: async (jobId, prState) => { settled.push([jobId, prState]); },
     runGh: async (args) => {
       calls.push(args);
+      if (args[0] === 'pr') {
+        const s = opts.prStates?.[args[2]!];
+        if (s instanceof Error) throw s;
+        return JSON.stringify({ state: s });
+      }
       const key = args.find((a) => a.startsWith('--repo=') || a.startsWith('user-review-requested:'))!;
       const r = opts.results?.[key] ?? [];
       if (r instanceof Error) throw r;
@@ -43,7 +53,7 @@ function harness(opts: HarnessOpts) {
     },
     postPlan: opts.postPlan ?? ((jobId, steps) => { plans.set(jobId, steps); }),
   });
-  return { intake, calls, created, plans };
+  return { intake, calls, created, plans, settled };
 }
 
 describe('ReviewIntake', () => {
@@ -136,6 +146,46 @@ describe('ReviewIntake', () => {
     });
     await h.intake.runOnce();
     expect(posted).toEqual(['pr-review-frostbyte73-outpost-16']);
+  });
+
+  describe('settling unapproved reviews', () => {
+    const url = (n: number) => `https://github.com/livekit/protocol/pull/${n}`;
+
+    it('settles merged and closed PRs and leaves open ones, even with both modes off', async () => {
+      const h = harness({
+        unapproved: [{ jobId: 'a', url: url(1) }, { jobId: 'b', url: url(2) }, { jobId: 'c', url: url(3) }],
+        prStates: { [url(1)]: 'MERGED', [url(2)]: 'CLOSED', [url(3)]: 'OPEN' },
+      });
+      expect(await h.intake.runOnce()).toEqual({ outcome: 'ok' });
+      expect(h.settled).toEqual([['a', 'merged'], ['b', 'closed']]);
+    });
+
+    it('skips the view for a PR this run already found open', async () => {
+      const h = harness({
+        repos: ['livekit/protocol'],
+        results: { '--repo=livekit/protocol': [ghPr('livekit/protocol', 1)] },
+        existing: ['pr-review-livekit-protocol-1'],
+        unapproved: [{ jobId: 'a', url: url(1) }],
+      });
+      await h.intake.runOnce();
+      expect(h.calls.some((c) => c[0] === 'pr')).toBe(false);
+    });
+
+    it('never passes a malformed URL to gh', async () => {
+      const h = harness({ unapproved: [{ jobId: 'a', url: '--repo=evil' }] });
+      await h.intake.runOnce();
+      expect(h.calls).toEqual([]);
+    });
+
+    it('keeps sweeping past a failed view and reports the run as an error', async () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const h = harness({
+        unapproved: [{ jobId: 'a', url: url(1) }, { jobId: 'b', url: url(2) }],
+        prStates: { [url(1)]: new Error('HTTP 502'), [url(2)]: 'MERGED' },
+      });
+      expect(await h.intake.runOnce()).toEqual({ outcome: 'error' });
+      expect(h.settled).toEqual([['b', 'merged']]);
+    });
   });
 });
 

@@ -3,6 +3,7 @@ import { promisify } from 'node:util';
 import { dirname, join } from 'node:path';
 import { repoFromRemoteUrl } from '../git/worktree-manager.js';
 import type { PrReviewIntake } from '../storage/preferences-store.js';
+import { PR_URL_RE } from '../work/pr-url.js';
 import type { ProposedStep } from '../work/work-types.js';
 
 const execFileP = promisify(execFile);
@@ -37,6 +38,8 @@ export interface ReviewIntakeDeps {
     autoPlan: false;
   }) => { jobId: string; created: boolean };
   postPlan: (jobId: string, steps: ProposedStep[]) => void;
+  unapprovedReviews: () => Array<{ jobId: string; url: string }>;
+  settle: (jobId: string, prState: 'merged' | 'closed') => Promise<void>;
   runGh?: (args: string[]) => Promise<string>;
   originOf?: (cwd: string) => Promise<string | null>;
 }
@@ -70,7 +73,6 @@ export class ReviewIntake {
     const searches = repos.map((r) => [`--repo=${r}`, '--', '-author:@me']);
     // `user-` excludes team requests, which CODEOWNERS orgs attach to nearly every PR
     if (reviewRequested) searches.push(['--', 'user-review-requested:@me']);
-    if (!searches.length) return { outcome: 'ok' };
 
     const byUrl = new Map<string, IntakePr>();
     let failed = false;
@@ -86,7 +88,24 @@ export class ReviewIntake {
       const origins = await this.projectOrigins();
       for (const pr of byUrl.values()) this.intake(pr, origins);
     }
+    if (await this.settleClosed(byUrl)) failed = true;
     return { outcome: failed ? 'error' : 'ok' };
+  }
+
+  // The PR watcher skips a job whose plan was never approved, so nothing else sees its PR close
+  private async settleClosed(open: Map<string, IntakePr>): Promise<boolean> {
+    let failed = false;
+    for (const { jobId, url } of this.deps.unapprovedReviews()) {
+      if (open.has(url) || !PR_URL_RE.test(url)) continue;
+      try {
+        const { state } = JSON.parse(await this.runGh(['pr', 'view', url, '--json', 'state'])) as { state?: string };
+        if (state === 'MERGED' || state === 'CLOSED') await this.deps.settle(jobId, state === 'MERGED' ? 'merged' : 'closed');
+      } catch (e) {
+        failed = true;
+        console.warn(`[review-intake] gh pr view ${url}: ${(e as Error).message}`);
+      }
+    }
+    return failed;
   }
 
   private async search(extra: string[]): Promise<IntakePr[]> {
