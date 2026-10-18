@@ -278,7 +278,9 @@ function renderHeader(dom, slice, sessionId, meta) {
   // pulse on every header tick (1s while running, plus every store repaint).
   dom.headerLive.hidden = !live;
   if (dom.headerMetaText.textContent !== text) dom.headerMetaText.textContent = text;
-  dom.headerMenu.innerHTML = headerMenuItemsHtml(sessionId);
+  // Unconditionally, this replaced the menu's buttons on every paint (each streamed token)
+  // and every header tick, so a click on an open menu item mid-turn was lost.
+  setHtmlIfChanged(dom.headerMenu, headerMenuItemsHtml(sessionId));
   if (dom.headerArchive) dom.headerArchive.hidden = computeGitInfo(sessionId).archived;
   if (dom.headerPromoteKbd) dom.headerPromoteKbd.textContent = formatCombo(keymap.bindingFor('session.promoteToJob'));
   if (dom.headerArchiveKbd) dom.headerArchiveKbd.textContent = formatCombo(keymap.bindingFor('session.archive'));
