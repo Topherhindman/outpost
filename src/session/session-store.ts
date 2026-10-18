@@ -143,6 +143,18 @@ interface RawSessionRecord {
     role?: string;
     content?: string | RawContentBlock[];
   };
+  attachment?: { type?: string; prompt?: unknown; commandMode?: string };
+}
+
+// A message sent while a turn is running is folded into that turn rather than becoming a
+// `user` record of its own: claude writes it as a `queued_command` attachment and the model
+// reads it as a system-reminder. Read it back as the user message it was, or it vanishes
+// from every transcript rebuilt from disk.
+function absorbedUserRecord(o: RawSessionRecord): RawSessionRecord | null {
+  const a = o.attachment;
+  if (o.type !== 'attachment' || a?.type !== 'queued_command' || a.commandMode !== 'prompt') return null;
+  if (typeof a.prompt !== 'string' && !Array.isArray(a.prompt)) return null;
+  return { type: 'user', message: { role: 'user', content: a.prompt as string | RawContentBlock[] } };
 }
 
 // Chunked scan that bails as soon as both title sources are found; avoids parsing multi-MB session files.
@@ -279,7 +291,7 @@ function stampRejections(messages: TranscriptMessage[], rejectedIds: Set<string>
 }
 
 function extractTranscriptMessages(obj: unknown, taskToolUseIds: Set<string>): TranscriptMessage[] {
-  const o = obj as RawSessionRecord;
+  const o = absorbedUserRecord(obj as RawSessionRecord) ?? (obj as RawSessionRecord);
   if (o.type !== 'user' && o.type !== 'assistant') return [];
   const content = o.message?.content;
   const msgId = o.type === 'assistant' ? o.message?.id : undefined;

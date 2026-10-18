@@ -179,6 +179,32 @@ describe('SessionStore', () => {
     expect(userMsg?.msgId).toBeUndefined();
   });
 
+  it('reads a message absorbed mid-turn back as a user message, in order', () => {
+    const root = mkdtempSync(join(tmpdir(), 'sstest-queued-root-'));
+    const proj = join(root, '-test-queued');
+    mkdirSync(proj);
+    const tmp = tmpdir();
+    // Shape claude 2.1.302 writes when a stream-json user line arrives while a turn runs.
+    writeFileSync(
+      join(proj, 'sess-dddddddd.jsonl'),
+      JSON.stringify({ type: 'user', cwd: tmp, message: { content: 'run the tests' } }) + '\n' +
+      JSON.stringify({ type: 'queue-operation', operation: 'enqueue', content: 'also lint' }) + '\n' +
+      JSON.stringify({
+        type: 'attachment',
+        attachment: { type: 'queued_command', prompt: 'also lint', commandMode: 'prompt' },
+      }) + '\n' +
+      JSON.stringify({ type: 'queue-operation', operation: 'remove', content: 'also lint', reason: 'absorbed_mid_turn' }) + '\n' +
+      JSON.stringify({ type: 'assistant', message: { id: 'msg_02', role: 'assistant', content: [{ type: 'text', text: 'done, and linted' }] } }) + '\n' +
+      JSON.stringify({ type: 'attachment', attachment: { type: 'queued_command', prompt: 'ls', commandMode: 'bash' } }) + '\n',
+    );
+    const msgs = new SessionStore({ root }).readMessages('sess-dddddddd');
+    expect(msgs.map((m) => [m.role, m.text])).toEqual([
+      ['user', 'run the tests'],
+      ['user', 'also lint'],
+      ['assistant', 'done, and linted'],
+    ]);
+  });
+
   it('extracts cwd from the first jsonl line in a project dir', () => {
     const root = mkdtempSync(join(tmpdir(), 'sstest-cwd-root-'));
     const proj = join(root, '-test-cwd');
