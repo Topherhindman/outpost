@@ -358,31 +358,36 @@ html[data-layout="mobile"] .sv-composer { font-size: 16px; }
    its own WS readiness) an armed accent send would misrepresent the state —
    mute it. Sending is a no-op that keeps the composer text; the banner
    explains why. */
-.sv-send.sv-send-disconnected.armed:not(.is-stop) {
+.sv-send.sv-send-disconnected.armed {
   background: transparent;
   color: var(--text-mute);
   border-color: var(--line);
 }
-/* Stop variant — while the session is thinking the send button becomes an
-   interrupt. Textual "■" is hidden (font-size:0) and the icon is a CSS-drawn
-   10×10 danger square, matching the legacy composer's .send.is-stop styling. */
-.sv-send.is-stop {
+/* Shown only while the session is thinking, beside Send rather than in place
+   of it — so a message can be queued mid-turn without interrupting. Sits to
+   the right of Send, where the old dual-role button put its stop square, and
+   doesn't move when Send appears next to it. */
+.sv-stop {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
   background: transparent;
-  color: transparent;
-  border-color: var(--danger);
-  font-size: 0;
-  position: relative;
+  border: 1px solid var(--danger);
+  border-radius: var(--r-control);
+  cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
-.sv-send.is-stop::before {
+.sv-stop::before {
   content: "";
   width: 10px;
   height: 10px;
   background: var(--danger);
 }
-.sv-send.is-stop:active { background: var(--danger-soft); }
+.sv-stop:active { background: var(--danger-soft); }
+.sv-stop:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sv-send[hidden], .sv-stop[hidden] { display: none; }
 
 /* Muted pending state for user messages that we appended locally before the
    server round-trip echoes them back. */
