@@ -200,6 +200,9 @@ export async function startDaemon(opts: StartDaemonOpts): Promise<DaemonHandle> 
   const baseEnv: Record<string, string> = {
     ...process.env,
     PATH: pathForDaemon,
+    // resolveClaudeBin honours this override ahead of PATH, so one inherited from the
+    // developer's shell would spawn their real, billed claude in place of the fixture mock.
+    OUTPOST_CLAUDE_BIN: join(MOCK_CLAUDE_DIR, 'claude'),
     OUTPOST_RUNTIME_DIR: runtimeDir,
     OUTPOST_PROJECTS_ROOT: projectsRoot,
     OUTPOST_HOOK_PORT: String(hookPort),
