@@ -1,26 +1,32 @@
-// 1M-context Opus advertises with the [1m] suffix; unknown ids fall back to 200k.
-export const CONTEXT_WINDOWS = {
-  'claude-opus-4-7[1m]': 1_000_000,
-  'claude-opus-4-7': 200_000,
-  'claude-sonnet-4-6': 200_000,
-  'claude-haiku-4-5-20251001': 200_000,
-  _default: 200_000,
-};
+export const CONTEXT_WINDOWS = { _default: 200_000 };
 
+// `claude-<family>-<major>[-<minor>][-<yyyymmdd>][1m]`. The minor is one or two digits so a
+// date snapshot (`claude-opus-4-20250514`) isn't read as version 4.20250514.
+const MODEL_ID = /^claude-(opus|sonnet|haiku|fable|mythos)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?(\[1m\])?$/i;
+
+// Only covers the stretch before a session's first `result`: Claude Code reports each model's
+// real window there (modelUsage[].contextWindow) and the slice keeps it — see dispatch.js.
+// Through the 4.x line Claude Code ran 200k unless you picked the [1m] variant; from the 5.x
+// generation on, 1M is the default. A table keyed on exact ids went stale the day Opus 5.5
+// shipped and showed it at 200k, so this is a rule over the family and generation instead.
 export function lookupContextWindow(modelId) {
-  if (!modelId) return CONTEXT_WINDOWS._default;
-  return CONTEXT_WINDOWS[modelId] ?? CONTEXT_WINDOWS._default;
+  const m = typeof modelId === 'string' ? modelId.match(MODEL_ID) : null;
+  if (!m) return CONTEXT_WINDOWS._default;
+  if (m[4]) return 1_000_000;
+  const family = m[1].toLowerCase();
+  if (family === 'fable' || family === 'mythos') return 1_000_000;
+  return Number(m[2]) >= 5 ? 1_000_000 : CONTEXT_WINDOWS._default;
 }
 
 // `claude-opus-4-7[1m]` → "Opus 4.7 (1M)". statusLine's display_name doesn't
 // fire in --print mode, so we derive from the model id.
 export function prettyModelName(id) {
   if (typeof id !== 'string' || !id) return null;
-  const m = id.match(/^claude-(opus|sonnet|haiku)-(\d+)-(\d+)(?:-\d+)?(\[1m\])?$/i);
+  const m = id.match(MODEL_ID);
   if (!m) return id;
   const family = m[1].charAt(0).toUpperCase() + m[1].slice(1).toLowerCase();
-  const suffix = m[4] ? ' (1M)' : '';
-  return `${family} ${m[2]}.${m[3]}${suffix}`;
+  const version = m[3] ? `${m[2]}.${m[3]}` : m[2];
+  return `${family} ${version}${m[4] ? ' (1M)' : ''}`;
 }
 
 // Derive context-window usage + model label for one session, statusline-first

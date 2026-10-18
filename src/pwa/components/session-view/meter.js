@@ -34,8 +34,9 @@ function cellHtml(label, pct, hasValue, ariaLabel) {
 // CTX number sources, in preference order:
 //   1. slice.statusline.contextWindow — authoritative from claude's
 //      statusLine hook.
-//   2. slice.lastUsage + usage.contextWindow — fallback estimate from
-//      message_start, seeded before the first statusLine fire.
+//   2. slice.lastUsage + a total from slice.contextWindow (the last `result`'s
+//      modelUsage — what --print mode actually reports), else usage.contextWindow
+//      (guessed from the model id, until this session's first result).
 //
 // `dom` is session-view's per-mount DOM object; needs `.meter` (the region to
 // render into) and `.composer` (so tapping the strip can restore composer
@@ -47,7 +48,7 @@ export function renderMeterStrip(dom, sessionId) {
   const sl = slice?.statusline ?? null;
   const u = slice?.lastUsage ?? null;
   const cu = contextUsage(sl, u, {
-    fallbackTotal: usage.get().contextWindow || CONTEXT_WINDOWS._default,
+    fallbackTotal: slice?.contextWindow || usage.get().contextWindow || CONTEXT_WINDOWS._default,
     retagTo1M: usage.get().projectContextWindow === 1_000_000,
   });
   const ctxKnown = cu.known;

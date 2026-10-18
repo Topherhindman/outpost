@@ -47,7 +47,7 @@ function infoCardHtml(sessionId, mcpServers) {
   const slice = sessions.getSlice(sessionId);
   const sl = slice?.statusline ?? null;
   const cu = contextUsage(sl, slice?.lastUsage ?? null, {
-    fallbackTotal: usage.get().contextWindow || undefined,
+    fallbackTotal: slice?.contextWindow || usage.get().contextWindow || undefined,
     retagTo1M: usage.get().projectContextWindow === 1_000_000,
   });
   // Statusline is authoritative, but doesn't fire in --print mode / before the
