@@ -82,6 +82,10 @@ export interface TranscriptMessage {
   // the rejection frame visible after a disk-side transcript rebuild.
   decision?: 'allow' | 'deny';
   rejectReason?: string;
+  // Photos the user sent with this message. Only the count survives a rebuild from disk: the
+  // bytes are in the JSONL, but shipping them back in every history load would cost far more
+  // than a placeholder is worth.
+  images?: number;
 }
 
 // Tools whose tool_result we surface (instead of dropping) because the PWA renders the pair specially.
@@ -341,6 +345,14 @@ function extractTranscriptMessages(obj: unknown, taskToolUseIds: Set<string>): T
       if (!text) continue;
       parts.push({ role: 'tool_result', text, toolUseId: useId });
     }
+  }
+  // A top-level image block in a user record is one the user attached (a Read of an image
+  // nests inside its tool_result instead).
+  const images = o.type === 'user' ? content.filter((b) => b.type === 'image').length : 0;
+  if (images > 0) {
+    const first = parts.find((p) => p.role === 'user');
+    if (first) first.images = images;
+    else parts.unshift({ role: 'user', text: '', images });
   }
   return parts;
 }

@@ -205,6 +205,25 @@ describe('SessionStore', () => {
     ]);
   });
 
+  it('counts the photos a user attached, without carrying their bytes', () => {
+    const root = mkdtempSync(join(tmpdir(), 'sstest-images-root-'));
+    const proj = join(root, '-test-images');
+    mkdirSync(proj);
+    const img = { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'AAAA' } };
+    writeFileSync(
+      join(proj, 'sess-eeeeeeee.jsonl'),
+      JSON.stringify({ type: 'user', cwd: tmpdir(), message: { content: [img, img, { type: 'text', text: 'which is better?' }] } }) + '\n' +
+      JSON.stringify({ type: 'user', message: { content: [img] } }) + '\n' +
+      // An image Read returned nests inside its tool_result — not something the user sent.
+      JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: [img] }] } }) + '\n',
+    );
+    const msgs = new SessionStore({ root }).readMessages('sess-eeeeeeee');
+    expect(msgs).toEqual([
+      { role: 'user', text: 'which is better?', images: 2 },
+      { role: 'user', text: '', images: 1 },
+    ]);
+  });
+
   it('extracts cwd from the first jsonl line in a project dir', () => {
     const root = mkdtempSync(join(tmpdir(), 'sstest-cwd-root-'));
     const proj = join(root, '-test-cwd');

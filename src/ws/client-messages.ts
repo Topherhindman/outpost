@@ -6,6 +6,7 @@
 // safe, and that's easiest to pin down in an isolated, unit-testable function.
 import { parseJsonObject } from '../routes/util.js';
 import type { ApprovalMode } from '../permissions/approval-mode.js';
+import { buildUserContent, makeUploadSaver, parseAttachments, type UserContent } from '../session/attachments.js';
 
 type RawFrame = Buffer | ArrayBuffer | Buffer[];
 
@@ -76,6 +77,18 @@ export interface SessionMessageDeps {
   shell?: ShellTarget;
   log?: (line: string) => void;
   onUserMessage?: (sessionId: string) => void;
+  // Where a non-image attachment is written (`<root>/<sessionId>/…`); absent, files are refused.
+  uploadsRoot?: string;
+}
+
+// Parse and stage everything before anything is sent: a bad attachment fails the whole
+// message, never half of it. A file attachment is written to disk here, so a later send
+// failure leaves it behind — harmless, and the same bytes will be re-sent on retry.
+function userContent(msg: Record<string, unknown>, sessionId: string, blocks: string, deps: SessionMessageDeps): UserContent {
+  const text = blocks + (typeof msg.content === 'string' ? msg.content : '');
+  const attachments = parseAttachments(msg.attachments);
+  if (attachments.some((a) => a.kind === 'file') && !deps.uploadsRoot) throw new Error('file uploads are not available');
+  return buildUserContent(text, attachments, deps.uploadsRoot ? makeUploadSaver(deps.uploadsRoot, sessionId) : () => '');
 }
 
 export function handleSessionMessage(raw: RawFrame, sessionId: string, deps: SessionMessageDeps): void {
@@ -83,18 +96,27 @@ export function handleSessionMessage(raw: RawFrame, sessionId: string, deps: Ses
   if (!msg) return;
   const log = deps.log ?? (() => {});
   if (msg.type === 'user_message') {
-    const { content } = msg as { content: string };
     // `!` output the user produced since their last message rides in ahead of what they
     // typed — see SessionShell. Nothing is sent when they only ran commands, so the
     // blocks wait here rather than costing a turn of their own.
     const blocks = deps.shell?.drain(sessionId) ?? '';
+    let content: UserContent;
+    try {
+      content = userContent(msg, sessionId, blocks, deps);
+    } catch (e) {
+      deps.shell?.restore(sessionId, blocks);
+      const message = `Message not sent — ${(e as Error).message}`;
+      log(`[api] user_message to ${sessionId.slice(0, 8)} rejected: ${(e as Error).message}`);
+      deps.manager.broadcast(sessionId, { type: 'daemon_error', message });
+      return;
+    }
     // SessionManager.send throws when the session isn't in `active` — which a client
     // can trigger any time by typing into a session whose subprocess has since exited
     // (a daemon restart drops every active entry while the PWA keeps showing them).
     // Unguarded, that throw unwinds through ws.on('message') and kills the daemon,
     // which drops every other session too. Report it, don't die.
     try {
-      deps.manager.send(sessionId, { type: 'user', message: { role: 'user', content: blocks + content } });
+      deps.manager.send(sessionId, { type: 'user', message: { role: 'user', content } });
       deps.onUserMessage?.(sessionId);
     } catch (e) {
       deps.shell?.restore(sessionId, blocks);

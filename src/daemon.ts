@@ -1513,6 +1513,7 @@ async function main() {
       try {
         handleSessionMessage(raw, sessionId, {
           queue, manager, modes, shell: sessionShell, log: (l) => console.log(l),
+          uploadsRoot: join(RUNTIME_DIR, 'uploads'),
           onUserMessage: (id) => { const jobId = engine.jobIdForSession(id); if (jobId) engine.markEngaged(jobId); },
         });
       } catch (e) {
