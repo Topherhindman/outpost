@@ -15,6 +15,7 @@ import { sessions } from '../../state/sessions.js';
 import { fmtCtxSize, fmtResetAt, fmtRemaining, fmtNumber } from '../../utils/formatting.js';
 import { usageTier, clampPct } from '../../utils/usage-bar.js';
 import { contextUsage, CONTEXT_WINDOWS } from '../../utils/context-usage.js';
+import { setHtmlIfChanged } from '../../utils/keyed-rows.js';
 
 function cellHtml(label, pct, hasValue, ariaLabel) {
   if (!hasValue || typeof pct !== 'number') {
@@ -108,7 +109,7 @@ export function renderMeterStrip(dom, sessionId) {
   `;
 
   const openCls = usage.get().meterBreakdownOpen ? ' meter-breakdown-open' : '';
-  region.innerHTML = `
+  const html = `
     <button class="meter" type="button" aria-expanded="${usage.get().meterBreakdownOpen ? 'true' : 'false'}"
             aria-label="${escapeHtml(ariaSummary)}. Tap to expand.">
       ${tagText ? `<div class="meter-tag">${tagText}</div>` : ''}
@@ -118,6 +119,11 @@ export function renderMeterStrip(dom, sessionId) {
       <div class="meter-breakdown-inner">${breakdownContent}</div>
     </div>
   `;
+  // paint() runs this on every store tick — every streamed token mid-turn. Replacing the
+  // button that often means a real tap's touchstart and touchend land on different nodes,
+  // and the browser never synthesizes the click. The handlers below read state live, so
+  // the nodes they're already bound to stay correct when the markup is unchanged.
+  if (!setHtmlIfChanged(region, html)) return;
   const btn = region.querySelector('.meter');
   const bd = region.querySelector('.meter-breakdown');
   const setOpen = (open) => {

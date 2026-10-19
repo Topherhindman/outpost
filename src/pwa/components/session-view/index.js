@@ -99,6 +99,7 @@ function buildSkeleton(mount) {
              aria-label="Message" autocapitalize="sentences" data-placeholder="Type a message…"></div>
         <span class="sv-model-chip" hidden></span>
         <button class="sv-send" type="button" aria-label="Send">↵</button>
+        <button class="sv-stop" type="button" aria-label="Stop" hidden></button>
       </div>
     </div>
   `;
@@ -115,6 +116,7 @@ function buildSkeleton(mount) {
     palette:   mount.querySelector('.sv-slash-palette'),
     composer:  mount.querySelector('.sv-composer'),
     send:      mount.querySelector('.sv-send'),
+    stop:      mount.querySelector('.sv-stop'),
     modelChip: mount.querySelector('.sv-model-chip'),
     modeChip:  mount.querySelector('.sv-mode-chip'),
     modeSelect:mount.querySelector('.sv-mode-select'),
@@ -276,7 +278,9 @@ function renderHeader(dom, slice, sessionId, meta) {
   // pulse on every header tick (1s while running, plus every store repaint).
   dom.headerLive.hidden = !live;
   if (dom.headerMetaText.textContent !== text) dom.headerMetaText.textContent = text;
-  dom.headerMenu.innerHTML = headerMenuItemsHtml(sessionId);
+  // Unconditionally, this replaced the menu's buttons on every paint (each streamed token)
+  // and every header tick, so a click on an open menu item mid-turn was lost.
+  setHtmlIfChanged(dom.headerMenu, headerMenuItemsHtml(sessionId));
   if (dom.headerArchive) dom.headerArchive.hidden = computeGitInfo(sessionId).archived;
   if (dom.headerPromoteKbd) dom.headerPromoteKbd.textContent = formatCombo(keymap.bindingFor('session.promoteToJob'));
   if (dom.headerArchiveKbd) dom.headerArchiveKbd.textContent = formatCombo(keymap.bindingFor('session.archive'));
@@ -525,6 +529,17 @@ function bindTranscriptHandlers(dom, sessionId) {
   });
 }
 
+// Send and Stop are separate buttons so neither changes meaning under the user's thumb.
+// A message sent mid-turn isn't an interrupt — claude folds it into the running turn at
+// the next tool boundary, the same as typing ahead in the CLI — so Send stays available
+// while thinking; it only steps aside when there's nothing to send, leaving Stop alone.
+function paintComposerButtons(dom, thinking) {
+  const hasText = dom.composer.innerText.trim().length > 0;
+  dom.send.classList.toggle('armed', hasText);
+  dom.send.hidden = thinking && !hasText;
+  dom.stop.hidden = !thinking;
+}
+
 // `paletteState` is non-null only for mobile mounts (see mountSessionView) —
 // it carries the slash-command palette's open/filter/highlight state, scoped
 // to this one mount since (unlike composerDraft/scrollIntent) it doesn't need
@@ -532,7 +547,7 @@ function bindTranscriptHandlers(dom, sessionId) {
 function wireComposer(dom, sessionId, paletteState) {
   const saved = composerDraft.get(sessionId);
   if (saved) dom.composer.textContent = saved;
-  const armed = () => dom.send.classList.toggle('armed', dom.composer.innerText.trim().length > 0);
+  const armed = () => paintComposerButtons(dom, !!sessions.getSlice(sessionId)?.thinking);
   const repaintPalette = () => renderSlashPalette(dom, paletteState, insertSlashCommand);
   const insertSlashCommand = (cmd) => {
     dom.composer.textContent = `${cmd} `;
@@ -599,16 +614,10 @@ function wireComposer(dom, sessionId, paletteState) {
     sessions.for(sessionId).appendTranscript({ role: 'user', text, __pending: true });
     clearComposer();
   };
-  // While the assistant is generating, the send button doubles as a stop button
-  // (paint() flips .is-stop / textContent). Same dual-role treatment as the
-  // legacy composer — see interruptSession in app.js.
-  const interrupt = () => {
+  dom.send.addEventListener('click', send);
+  dom.stop.addEventListener('click', () => {
     sessions.for(sessionId).expectInterrupt();
     sendInterrupt(sessionId);
-  };
-  dom.send.addEventListener('click', () => {
-    if (sessions.getSlice(sessionId)?.thinking) interrupt();
-    else send();
   });
   dom.composer.addEventListener('keydown', (e) => {
     if (paletteState?.open) {
@@ -826,18 +835,7 @@ export function mountSessionView(mount, sessionId, meta = {}) {
     } else if (!running && headerTicker) {
       stopHeaderTicker();
     }
-    // Same button, two meanings: while thinking it's a stop button (■,
-    // interrupt path); otherwise it's a Send button (↵). Matches the legacy
-    // updateThinkingRegion behavior on the singleton composer.
-    if (slice?.thinking) {
-      dom.send.classList.add('is-stop');
-      dom.send.setAttribute('aria-label', 'Stop');
-      dom.send.textContent = '■';
-    } else {
-      dom.send.classList.remove('is-stop');
-      dom.send.setAttribute('aria-label', 'Send');
-      dom.send.textContent = '↵';
-    }
+    paintComposerButtons(dom, !!slice?.thinking);
     // The strip's elapsed-time meta needs to tick between slice updates. Run a
     // 200ms interval only while this session is thinking; it repaints just the
     // strip so surrounding DOM (transcript, composer selection) isn't touched.
