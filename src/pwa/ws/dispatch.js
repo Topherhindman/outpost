@@ -214,6 +214,19 @@ const sessionHandlers = {
     if (msg.subtype === 'task_notification' && applyTaskNotification(msg) && isCurrent) deps.renderSession();
   },
 
+  // The only place --print mode states a model's context window — statusLine never fires
+  // there. modelUsage is keyed by model and can also carry a subagent's model, so prefer the
+  // entry for the model this session's own turns ran on.
+  result(msg, sid) {
+    const byModel = msg.modelUsage;
+    if (!sid || !byModel || typeof byModel !== 'object') return;
+    const own = sessions.getSlice(sid)?.lastUsage?.model;
+    const entry = (own && byModel[own]) || Object.values(byModel).find((u) => typeof u?.contextWindow === 'number');
+    if (typeof entry?.contextWindow === 'number' && entry.contextWindow > 0) {
+      sessions.for(sid).setContextWindow(entry.contextWindow);
+    }
+  },
+
   user(msg, sid, isCurrent) {
     const S = sessions.for(sid);
     const blocks = msg.message?.content;

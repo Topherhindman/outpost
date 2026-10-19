@@ -40,9 +40,27 @@ describe('contextUsage', () => {
     expect(r.modelDisplay).toBeNull();
   });
 
-  it('prettyModelName and lookupContextWindow behave as before', () => {
+  it('prettyModelName reads every family, with or without a minor version or date', () => {
     expect(prettyModelName('claude-opus-4-8[1m]')).toBe('Opus 4.8 (1M)');
+    expect(prettyModelName('claude-opus-5-5')).toBe('Opus 5.5');
+    expect(prettyModelName('claude-opus-5')).toBe('Opus 5');
+    expect(prettyModelName('claude-haiku-4-5-20251001')).toBe('Haiku 4.5');
+    expect(prettyModelName('claude-fable-5-1')).toBe('Fable 5.1');
+  });
+
+  it('lookupContextWindow: 1M from the 5.x generation on, 200k before it unless [1m]', () => {
+    expect(lookupContextWindow('claude-opus-5-5')).toBe(1000000);
+    expect(lookupContextWindow('claude-sonnet-5-5')).toBe(1000000);
+    expect(lookupContextWindow('claude-haiku-5-5')).toBe(1000000);
+    expect(lookupContextWindow('claude-opus-5')).toBe(1000000);
+    expect(lookupContextWindow('claude-fable-5-1')).toBe(1000000);
     expect(lookupContextWindow('claude-opus-4-7[1m]')).toBe(1000000);
+    expect(lookupContextWindow('claude-opus-4-7')).toBe(200000);
+    expect(lookupContextWindow('claude-sonnet-4-6')).toBe(200000);
+    expect(lookupContextWindow('claude-haiku-4-5-20251001')).toBe(200000);
+    // A date snapshot's yyyymmdd is not a minor version.
+    expect(lookupContextWindow('claude-opus-4-20250514')).toBe(200000);
     expect(lookupContextWindow('unknown')).toBe(200000);
+    expect(lookupContextWindow(null)).toBe(200000);
   });
 });
