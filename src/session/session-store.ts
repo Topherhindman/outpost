@@ -146,10 +146,7 @@ interface RawSessionRecord {
   attachment?: { type?: string; prompt?: unknown; commandMode?: string };
 }
 
-// A message sent while a turn is running is folded into that turn rather than becoming a
-// `user` record of its own: claude writes it as a `queued_command` attachment and the model
-// reads it as a system-reminder. Read it back as the user message it was, or it vanishes
-// from every transcript rebuilt from disk.
+// A message sent mid-turn is stored as a `queued_command` attachment, never as a `user` record
 function absorbedUserRecord(o: RawSessionRecord): RawSessionRecord | null {
   const a = o.attachment;
   if (o.type !== 'attachment' || a?.type !== 'queued_command' || a.commandMode !== 'prompt') return null;

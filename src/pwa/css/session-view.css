@@ -363,10 +363,7 @@ html[data-layout="mobile"] .sv-composer { font-size: 16px; }
   color: var(--text-mute);
   border-color: var(--line);
 }
-/* Shown only while the session is thinking, beside Send rather than in place
-   of it — so a message can be queued mid-turn without interrupting. Sits to
-   the right of Send, where the old dual-role button put its stop square, and
-   doesn't move when Send appears next to it. */
+/* Beside Send, not in place of it, so a mid-turn message doesn't interrupt */
 .sv-stop {
   flex: 0 0 auto;
   width: 40px;

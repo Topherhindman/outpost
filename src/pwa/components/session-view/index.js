@@ -278,8 +278,7 @@ function renderHeader(dom, slice, sessionId, meta) {
   // pulse on every header tick (1s while running, plus every store repaint).
   dom.headerLive.hidden = !live;
   if (dom.headerMetaText.textContent !== text) dom.headerMetaText.textContent = text;
-  // Unconditionally, this replaced the menu's buttons on every paint (each streamed token)
-  // and every header tick, so a click on an open menu item mid-turn was lost.
+  // Rebuilding per paint (every streamed token) drops a tap on an open menu item
   setHtmlIfChanged(dom.headerMenu, headerMenuItemsHtml(sessionId));
   if (dom.headerArchive) dom.headerArchive.hidden = computeGitInfo(sessionId).archived;
   if (dom.headerPromoteKbd) dom.headerPromoteKbd.textContent = formatCombo(keymap.bindingFor('session.promoteToJob'));
@@ -529,12 +528,10 @@ function bindTranscriptHandlers(dom, sessionId) {
   });
 }
 
-// Send and Stop are separate buttons so neither changes meaning under the user's thumb.
-// A message sent mid-turn isn't an interrupt — claude folds it into the running turn at
-// the next tool boundary, the same as typing ahead in the CLI — so Send stays available
-// while thinking; it only steps aside when there's nothing to send, leaving Stop alone.
+// Send stays live mid-turn: claude folds a queued message into the running turn, it doesn't interrupt
 function paintComposerButtons(dom, thinking) {
-  const hasText = dom.composer.innerText.trim().length > 0;
+  // textContent, not innerText: this runs per streamed token, and innerText forces a layout
+  const hasText = dom.composer.textContent.trim().length > 0;
   dom.send.classList.toggle('armed', hasText);
   dom.send.hidden = thinking && !hasText;
   dom.stop.hidden = !thinking;
