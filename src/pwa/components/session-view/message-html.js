@@ -189,9 +189,7 @@ export function minimalMsgHtml(m, expandedTools, ctx) {
 
 const PREVIEW_URL = /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/;
 
-// Live entries carry the thumbnails made on this device at send time; a transcript rebuilt
-// from disk only knows how many photos there were (`images`) and which files were saved
-// (parsed back out of the `[Attached file: …]` lines the daemon appended).
+// Live entries carry this device's thumbnails; one rebuilt from disk has only a photo count
 function userAttachmentsHtml(m, savedFiles) {
   const items = [];
   const live = Array.isArray(m.attachments) ? m.attachments : [];

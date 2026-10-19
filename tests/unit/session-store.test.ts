@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, utimesSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SessionStore } from '../../src/session/session-store.js';
@@ -222,6 +222,21 @@ describe('SessionStore', () => {
       { role: 'user', text: 'which is better?', images: 2 },
       { role: 'user', text: '', images: 1 },
     ]);
+  });
+
+  it("removes the session's uploads along with it, and no other session's", () => {
+    const root = mkdtempSync(join(tmpdir(), 'sstest-del-root-'));
+    const runtimeDir = mkdtempSync(join(tmpdir(), 'sstest-del-runtime-'));
+    const proj = join(root, '-test-del');
+    mkdirSync(proj);
+    writeFileSync(join(proj, 'sess-gone.jsonl'), JSON.stringify({ type: 'user', cwd: tmpdir(), message: { content: 'hi' } }) + '\n');
+    for (const id of ['sess-gone', 'sess-kept']) {
+      mkdirSync(join(runtimeDir, 'uploads', id), { recursive: true });
+      writeFileSync(join(runtimeDir, 'uploads', id, '1-0-report.pdf'), '%PDF');
+    }
+    expect(new SessionStore({ root, runtimeDir }).delete('sess-gone')).toBe(true);
+    expect(existsSync(join(runtimeDir, 'uploads', 'sess-gone'))).toBe(false);
+    expect(existsSync(join(runtimeDir, 'uploads', 'sess-kept', '1-0-report.pdf'))).toBe(true);
   });
 
   it('extracts cwd from the first jsonl line in a project dir', () => {

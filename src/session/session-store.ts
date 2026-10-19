@@ -1,4 +1,5 @@
-import { readdirSync, readFileSync, statSync, unlinkSync, openSync, readSync, closeSync, writeFileSync, mkdirSync, renameSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync, unlinkSync, openSync, readSync, closeSync, writeFileSync, mkdirSync, renameSync, rmSync } from 'node:fs';
+import { uploadsRootFor } from './attachments.js';
 import { join } from 'node:path';
 import { LineParser } from './stream-json.js';
 import { splitBashBlocks } from './shell-exec.js';
@@ -82,9 +83,7 @@ export interface TranscriptMessage {
   // the rejection frame visible after a disk-side transcript rebuild.
   decision?: 'allow' | 'deny';
   rejectReason?: string;
-  // Photos the user sent with this message. Only the count survives a rebuild from disk: the
-  // bytes are in the JSONL, but shipping them back in every history load would cost far more
-  // than a placeholder is worth.
+  // Photos the user attached — a count, so history loads don't ship the image bytes back
   images?: number;
 }
 
@@ -967,6 +966,7 @@ export class SessionStore {
       unlinkSync(path);
       try { unlinkSync(join(found.projectDir, `${id}.title`)); } catch { /* no sidecar */ }
       if (this.sessionMetaDir) { try { unlinkSync(join(this.sessionMetaDir, `${id}.json`)); } catch { /* no sidecar */ } }
+      if (this.runtimeDir) rmSync(join(uploadsRootFor(this.runtimeDir), id), { recursive: true, force: true });
       return true;
     } catch {
       return false;

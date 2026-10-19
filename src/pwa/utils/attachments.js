@@ -1,18 +1,17 @@
-// Turns a picked/pasted File into what a user_message frame carries (see
-// src/session/attachments.ts for the daemon half).
-//
-// Photos are downscaled here, before they cross the tailnet: an iPhone photo is 4–12 MB and
-// often HEIC, while Claude downsamples anything past ~1568px on its long edge anyway, so the
-// extra pixels are pure upload cost — and the API refuses an image over 5 MB outright.
-// Re-encoding through a canvas also turns HEIC (which the API doesn't take) into JPEG.
+// Photos are downscaled before they cross the tailnet: Claude reads at most ~1568px on the long
+// edge anyway, and re-encoding to JPEG also turns HEIC, which the API refuses, into something it takes.
 
+// Mirrors the daemon's limits in src/session/attachments.ts
 export const MAX_ATTACHMENTS = 10;
 export const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+export const MAX_MESSAGE_ATTACHMENT_BYTES = 30 * 1024 * 1024;
+// Base64 of 3.75 MB is the API's 5 MB image cap
+const MAX_IMAGE_BYTES = 3.75 * 1024 * 1024;
 const MAX_EDGE = 1568;
 const PREVIEW_EDGE = 160;
-// Sent as-is when already small enough; base64 of 3.75 MB is the API's 5 MB image cap.
 const PASSTHROUGH_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
-const PASSTHROUGH_MAX_BYTES = 3.75 * 1024 * 1024;
+
+export const attachmentBytes = (a) => Math.floor(a.data.length * 3 / 4);
 
 function readBase64(blob) {
   return new Promise((resolve, reject) => {
@@ -62,10 +61,12 @@ function canvasBlob(canvas, type, quality) {
 async function prepareImage(file) {
   const bitmap = await decode(file);
   const fits = Math.max(bitmap.width, bitmap.height) <= MAX_EDGE;
-  const passthrough = fits && PASSTHROUGH_TYPES.has(file.type) && file.size <= PASSTHROUGH_MAX_BYTES;
+  const passthrough = fits && PASSTHROUGH_TYPES.has(file.type) && file.size <= MAX_IMAGE_BYTES;
   const blob = passthrough ? file : await canvasBlob(drawScaled(bitmap, MAX_EDGE), 'image/jpeg', 0.85);
   const preview = drawScaled(bitmap, PREVIEW_EDGE).toDataURL('image/jpeg', 0.7);
   bitmap.close?.();
+  // The daemon would refuse it as an image; prepareAttachment sends it as a file instead
+  if (blob.size > MAX_IMAGE_BYTES) throw new Error('image too large to send inline');
   return { kind: 'image', name: file.name || 'photo.jpg', mediaType: passthrough ? file.type : 'image/jpeg', data: await readBase64(blob), preview };
 }
 
@@ -90,9 +91,7 @@ export function wireAttachment({ kind, name, mediaType, data }) {
   return { kind, name, mediaType, data };
 }
 
-// `[Attached file: /…/uploads/<sid>/<ts>-<i>-report.pdf (application/pdf, 1.2 MB)]` — the
-// line the daemon appends for a non-image file. Pulled back out so the transcript shows a
-// chip rather than the raw path.
+// The daemon's line for a saved file, pulled back out so the transcript shows a chip, not a path
 const ATTACHED_FILE_LINE = /^\[Attached file: (.+) \(([^,()]+), ([^()]+)\)\]$/gm;
 
 export function splitAttachedFiles(text) {

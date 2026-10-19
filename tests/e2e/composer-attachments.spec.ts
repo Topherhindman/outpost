@@ -118,3 +118,34 @@ test('a removed attachment is not sent', async ({ daemon, outpostPage }) => {
   // Nothing left to send.
   await expect(outpostPage.locator('.sv-send')).not.toHaveClass(/\barmed\b/);
 });
+
+// Spreadsheet cells and Keynote put text/plain and an image rendition on the clipboard together
+test('a paste attaches an image only when there is no text to paste instead', async ({ daemon, outpostPage }) => {
+  await openSessionAtCwd(outpostPage, daemon, TEST_CWD);
+  await expect(outpostPage.locator('.sv-composer')).toBeVisible({ timeout: 10_000 });
+  const paste = (withText: boolean) => outpostPage.evaluate((withText) => {
+    const dt = new DataTransfer();
+    dt.items.add(new File([new Uint8Array([1, 2, 3])], 'clip.png', { type: 'image/png' }));
+    if (withText) dt.setData('text/plain', 'A1\tB1');
+    const e = new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true });
+    document.querySelector('.sv-composer')!.dispatchEvent(e);
+    return e.defaultPrevented;
+  }, withText);
+  const tray = outpostPage.locator('.sv-attachments');
+
+  expect(await paste(true)).toBe(false);
+  await expect(tray).toBeHidden();
+
+  expect(await paste(false)).toBe(true);
+  await expect(tray).toContainText('clip.png');
+});
+
+test('the tray refuses what would push a message past its total, and says why', async ({ daemon, outpostPage }) => {
+  await openSessionAtCwd(outpostPage, daemon, TEST_CWD);
+  await expect(outpostPage.locator('.sv-composer')).toBeVisible({ timeout: 10_000 });
+  const elevenMb = (name: string) => ({ name, mimeType: 'text/plain', buffer: Buffer.alloc(11 * 1024 * 1024, 0x61) });
+  await outpostPage.locator('.sv-attach-input').setInputFiles([elevenMb('a.log'), elevenMb('b.log'), elevenMb('c.log')]);
+  const tray = outpostPage.locator('.sv-attachments');
+  await expect(tray.locator('.sv-attachment-error')).toHaveText('Attachments are limited to 30 MB per message.', { timeout: 15_000 });
+  await expect(tray.locator('.sv-attachment')).toHaveCount(2);
+});

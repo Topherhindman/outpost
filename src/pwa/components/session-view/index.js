@@ -46,7 +46,7 @@ import { agentsStripHtml, refreshAgentsSheet } from '../agents-sheet/index.js';
 import { refreshTodosSheet } from '../todos-sheet.js';
 import { deriveSkillLabel } from '../../vm/sessions.js';
 import { engagement } from '../../state/engagement.js';
-import { hasReadyAttachments, wireAttachments } from './attachments.js';
+import { hasReadyAttachments, rememberSent, wireAttachments } from './attachments.js';
 import { wireAttachment } from '../../utils/attachments.js';
 
 const APPROVAL_MODES = ['ask', 'plan', 'accept-edits', 'bypass'];
@@ -555,7 +555,14 @@ function wireComposer(dom, sessionId, paletteState) {
   const saved = composerDraft.get(sessionId);
   if (saved) dom.composer.textContent = saved;
   const armed = () => paintComposerButtons(dom, sessionId, !!sessions.getSlice(sessionId)?.thinking);
-  const attachments = wireAttachments(dom, sessionId, armed);
+  // A refused message's text, back in the composer unless the user has started another
+  const restoreText = (text) => {
+    if (!text || dom.composer.textContent.trim()) return;
+    dom.composer.innerText = text;
+    composerDraft.set(sessionId, text);
+    placeCursorAtEnd(dom.composer);
+  };
+  const attachments = wireAttachments(dom, sessionId, armed, restoreText);
   const repaintPalette = () => renderSlashPalette(dom, paletteState, insertSlashCommand);
   const insertSlashCommand = (cmd) => {
     dom.composer.textContent = `${cmd} `;
@@ -605,13 +612,15 @@ function wireComposer(dom, sessionId, paletteState) {
     if (text.startsWith('!') && settings.get().shellCommands) { runShell(text.slice(1).trim()); return; }
     const attached = attachments.take();
     const wire = attached.map(wireAttachment);
+    const clientId = crypto.randomUUID();
+    rememberSent(sessionId, clientId, text, attached);
     // Happy path: the socket is open, send immediately. If it isn't, the session
     // was interrupted or its subprocess exited — typing a message is an explicit
     // intent to resume, so reconnect (which respawns the subprocess daemon-side)
     // and queue the message to flush on open, rather than leaving the composer
     // wedged behind a dead socket until the user reloads the session.
-    if (!sendUserMessage(sessionId, text, wire)) {
-      reconnectAndSend(sessionId, text, wire);
+    if (!sendUserMessage(sessionId, text, wire, clientId)) {
+      reconnectAndSend(sessionId, text, wire, clientId);
       // runState went 'inactive' on the interrupt/exit; the view is still
       // mounted, so restore it now that we're bringing the session back — this
       // clears the 'idle' conn state so the banner/button reflect reconnecting.
@@ -628,6 +637,7 @@ function wireComposer(dom, sessionId, paletteState) {
       text,
       // Thumbnails and names only — the full bytes have no business living in the store.
       ...(attached.length ? { attachments: attached.map(({ kind, name, preview }) => ({ kind, name, preview })) } : {}),
+      clientId,
       __pending: true,
     });
     clearComposer();

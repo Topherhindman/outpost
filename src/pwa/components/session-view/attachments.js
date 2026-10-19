@@ -1,18 +1,36 @@
-// The composer's pending photos and files: the 📎 picker, paste and drop all feed one list
-// per session, shown as a tray of thumbnails above the composer, and send() takes it.
-//
-// Kept per session in a module-level map, like composerDraft, so backgrounding a tab
-// doesn't drop what the user attached. Not persisted — a reload starts clean.
+// The composer's pending photos and files, per session like composerDraft so tab churn keeps them
 import { escapeHtml } from '../../util.js';
-import { MAX_ATTACHMENTS, prepareAttachment } from '../../utils/attachments.js';
+import { MAX_ATTACHMENTS, MAX_MESSAGE_ATTACHMENT_BYTES, attachmentBytes, prepareAttachment } from '../../utils/attachments.js';
 
 const pendingBySession = new Map();
+// The last few sends per session, so one the daemon refuses can go back in the composer
+const sentBySession = new Map();
+// The mounted composer's restore hook, per session
+const mounts = new Map();
 let nextId = 0;
 
 // Something ready to send — what turns Send on with an empty composer.
 export function hasReadyAttachments(sessionId) {
   const list = pendingBySession.get(sessionId) ?? [];
   return list.length > 0 && !list.some((a) => a.preparing);
+}
+
+export function rememberSent(sessionId, clientId, text, items) {
+  sentBySession.set(sessionId, [...(sentBySession.get(sessionId) ?? []), { clientId, text, items }].slice(-5));
+}
+
+// A refused message's attachments go back in the tray and its text into an empty composer.
+// Returns false for a clientId this tab didn't send.
+export function restoreRefused(sessionId, clientId) {
+  const recent = sentBySession.get(sessionId) ?? [];
+  const sent = recent.find((s) => s.clientId === clientId);
+  if (!sent) return false;
+  sentBySession.set(sessionId, recent.filter((s) => s !== sent));
+  if (sent.items.length) {
+    pendingBySession.set(sessionId, [...sent.items, ...(pendingBySession.get(sessionId) ?? [])].slice(0, MAX_ATTACHMENTS));
+  }
+  mounts.get(sessionId)?.(sent.text);
+  return true;
 }
 
 function trayHtml(list, error) {
@@ -29,9 +47,9 @@ function trayHtml(list, error) {
   return items.join('') + err;
 }
 
-// `onChange` lets the composer repaint Send/Stop when the list changes. Every listener sits
-// on mount-owned DOM, so it goes away with the mount — nothing to unwire.
-export function wireAttachments(dom, sessionId, onChange) {
+// `onChange` repaints Send/Stop when the list changes; `onRestoreText` puts a refused message's
+// text back. Every listener sits on mount-owned DOM, so it goes away with the mount.
+export function wireAttachments(dom, sessionId, onChange, onRestoreText) {
   let error = '';
   const list = () => pendingBySession.get(sessionId) ?? [];
   const render = () => {
@@ -44,6 +62,18 @@ export function wireAttachments(dom, sessionId, onChange) {
     render();
     onChange();
   };
+  mounts.set(sessionId, (text) => {
+    error = '';
+    render();
+    onRestoreText(text);
+    onChange();
+  });
+
+  // Checked once prepared: a 12 MB HEIC photo is a fraction of that after downscaling
+  const fitsMessage = (id, ready) => {
+    const others = list().reduce((n, a) => (a.id === id || a.preparing ? n : n + attachmentBytes(a)), 0);
+    return others + attachmentBytes(ready) <= MAX_MESSAGE_ATTACHMENT_BYTES;
+  };
 
   const add = (files) => {
     error = '';
@@ -53,7 +83,11 @@ export function wireAttachments(dom, sessionId, onChange) {
       const id = String(++nextId);
       set([...list(), { id, name: file.name || 'file', preparing: true }]);
       prepareAttachment(file).then(
-        (ready) => set(list().map((a) => (a.id === id ? { id, ...ready } : a))),
+        (ready) => {
+          if (fitsMessage(id, ready)) return set(list().map((a) => (a.id === id ? { id, ...ready } : a)));
+          error = `Attachments are limited to ${MAX_MESSAGE_ATTACHMENT_BYTES / 1024 / 1024} MB per message.`;
+          set(list().filter((a) => a.id !== id));
+        },
         (e) => { error = e.message; set(list().filter((a) => a.id !== id)); },
       );
     }
@@ -71,11 +105,11 @@ export function wireAttachments(dom, sessionId, onChange) {
     error = '';
     set(list().filter((a) => a.id !== id));
   };
-  // The composer is contenteditable: left alone, a pasted image lands in it as an <img> that
-  // innerText then silently drops on send.
+  // Left alone, a pasted image lands in the contenteditable composer as an <img> that send()
+  // drops. A copy that also carries text (spreadsheet cells, Keynote) pastes as the text.
   const onPaste = (e) => {
     const files = [...(e.clipboardData?.files ?? [])];
-    if (!files.length) return;
+    if (!files.length || [...(e.clipboardData?.types ?? [])].includes('text/plain')) return;
     e.preventDefault();
     add(files);
   };

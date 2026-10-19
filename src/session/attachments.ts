@@ -1,10 +1,5 @@
-// Photos and files sent with a message from the PWA composer.
-//
-// An image rides inline as an `image` content block — the same shape claude's own CLI sends
-// when you paste one, and `claude -p --input-format=stream-json` accepts it unchanged. Any
-// other file is written to disk and its path appended to the message, so the model opens it
-// with Read: that works for every type Read understands (PDFs included) without Outpost
-// having to know them, and leaves the file somewhere the model's other tools can reach too.
+// Photos go inline as image blocks (what the CLI sends for a paste); any other file is saved and
+// its path handed to the model, so Read handles every type without Outpost knowing them.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 
@@ -21,28 +16,42 @@ export type UserContent = string | Array<
 >;
 
 export const MAX_ATTACHMENTS = 10;
-// Raw bytes per attachment. The PWA downscales photos long before this; it bounds what one
-// file costs the WebSocket frame and the disk.
-export const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
-// What the Messages API accepts in an image block. Anything else is sent as a file.
+const MB = 1024 * 1024;
+export const MAX_ATTACHMENT_BYTES = 20 * MB;
+export const MAX_MESSAGE_ATTACHMENT_BYTES = 30 * MB;
+// The API refuses an image over 5 MB of base64, and a refused image in history fails every later turn
+export const MAX_IMAGE_BYTES = 3.75 * MB;
+// Base64 of the per-message cap, plus room for the text; server.ts sizes the WS maxPayload to this
+export const MAX_USER_MESSAGE_FRAME_BYTES = Math.ceil(MAX_MESSAGE_ATTACHMENT_BYTES * 4 / 3) + 8 * MB;
 export const IMAGE_MEDIA_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
 
 const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
+// mediaType is shown to the model verbatim, so nothing that could end the line or the parenthetical
+const MEDIA_TYPE = /^[a-z0-9][a-z0-9!#$&^_.+-]{0,63}\/[a-z0-9][a-z0-9!#$&^_.+-]{0,63}$/;
+
+export const uploadsRootFor = (runtimeDir: string) => join(runtimeDir, 'uploads');
+
+const fmtLimit =(n: number) => `${+(n / MB).toFixed(2)} MB`;
 
 // Throws with a message fit to show the user. An absent field is no attachments.
 export function parseAttachments(raw: unknown): Attachment[] {
   if (raw === undefined || raw === null) return [];
   if (!Array.isArray(raw)) throw new Error('attachments must be a list');
   if (raw.length > MAX_ATTACHMENTS) throw new Error(`at most ${MAX_ATTACHMENTS} attachments per message`);
+  let total = 0;
   return raw.map((a, i) => {
     const { kind, name, mediaType, data } = (a ?? {}) as Record<string, unknown>;
     const label = typeof name === 'string' && name ? name : `attachment ${i + 1}`;
     if (kind !== 'image' && kind !== 'file') throw new Error(`${label}: unknown attachment kind`);
     if (typeof data !== 'string' || !data || !BASE64.test(data)) throw new Error(`${label}: not base64 data`);
-    if (Math.floor(data.length * 3 / 4) > MAX_ATTACHMENT_BYTES) throw new Error(`${label}: larger than 20 MB`);
+    const bytes = Math.floor(data.length * 3 / 4);
+    const limit = kind === 'image' ? MAX_IMAGE_BYTES : MAX_ATTACHMENT_BYTES;
+    if (bytes > limit) throw new Error(`${label}: larger than ${fmtLimit(limit)}${kind === 'image' ? ' — send it as a file instead' : ''}`);
+    total += bytes;
+    if (total > MAX_MESSAGE_ATTACHMENT_BYTES) throw new Error(`attachments are limited to ${fmtLimit(MAX_MESSAGE_ATTACHMENT_BYTES)} per message`);
     const type = typeof mediaType === 'string' ? mediaType.toLowerCase() : '';
     if (kind === 'image' && !IMAGE_MEDIA_TYPES.has(type)) throw new Error(`${label}: unsupported image type ${type || '(none)'}`);
-    return { kind, name: label, mediaType: type || 'application/octet-stream', data };
+    return { kind, name: label, mediaType: MEDIA_TYPE.test(type) ? type : 'application/octet-stream', data };
   });
 }
 

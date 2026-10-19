@@ -79,11 +79,13 @@ export interface SessionMessageDeps {
   onUserMessage?: (sessionId: string) => void;
   // Where a non-image attachment is written (`<root>/<sessionId>/…`); absent, files are refused.
   uploadsRoot?: string;
+  // Answers only the socket the frame arrived on — a refused message is news to its sender alone
+  reply?: (message: unknown) => void;
 }
 
-// Parse and stage everything before anything is sent: a bad attachment fails the whole
-// message, never half of it. A file attachment is written to disk here, so a later send
-// failure leaves it behind — harmless, and the same bytes will be re-sent on retry.
+// Everything is parsed before anything is written or sent, so a bad attachment refuses the whole
+// message. Files are written before the send, so a failed send leaves them in the session's uploads
+// dir (and a retry writes them again); SessionStore.delete removes the dir with the session.
 function userContent(msg: Record<string, unknown>, sessionId: string, blocks: string, deps: SessionMessageDeps): UserContent {
   const text = blocks + (typeof msg.content === 'string' ? msg.content : '');
   const attachments = parseAttachments(msg.attachments);
@@ -100,14 +102,20 @@ export function handleSessionMessage(raw: RawFrame, sessionId: string, deps: Ses
     // typed — see SessionShell. Nothing is sent when they only ran commands, so the
     // blocks wait here rather than costing a turn of their own.
     const blocks = deps.shell?.drain(sessionId) ?? '';
+    // Echoed on a refusal so the PWA can put that message back in the composer
+    const clientId = typeof msg.clientId === 'string' && msg.clientId.length <= 64 ? msg.clientId : undefined;
+    const refuse = (e: Error) => {
+      deps.shell?.restore(sessionId, blocks);
+      log(`[api] user_message to ${sessionId.slice(0, 8)} refused: ${e.message}`);
+      const frame = { type: 'daemon_error', message: `Message not sent — ${e.message}`, ...(clientId ? { clientId } : {}) };
+      if (deps.reply) deps.reply(frame);
+      else deps.manager.broadcast(sessionId, frame);
+    };
     let content: UserContent;
     try {
       content = userContent(msg, sessionId, blocks, deps);
     } catch (e) {
-      deps.shell?.restore(sessionId, blocks);
-      const message = `Message not sent — ${(e as Error).message}`;
-      log(`[api] user_message to ${sessionId.slice(0, 8)} rejected: ${(e as Error).message}`);
-      deps.manager.broadcast(sessionId, { type: 'daemon_error', message });
+      refuse(e as Error);
       return;
     }
     // SessionManager.send throws when the session isn't in `active` — which a client
@@ -119,8 +127,7 @@ export function handleSessionMessage(raw: RawFrame, sessionId: string, deps: Ses
       deps.manager.send(sessionId, { type: 'user', message: { role: 'user', content } });
       deps.onUserMessage?.(sessionId);
     } catch (e) {
-      deps.shell?.restore(sessionId, blocks);
-      log(`[api] user_message to ${sessionId.slice(0, 8)} failed: ${(e as Error).message}`);
+      refuse(e as Error);
     }
   } else if (msg.type === 'shell_exec') {
     const { execId, command } = msg as { execId?: string; command?: string };
