@@ -14,7 +14,7 @@ import { usage } from '../../state/usage.js';
 import { sessions } from '../../state/sessions.js';
 import { fmtCtxSize, fmtResetAt, fmtRemaining, fmtNumber } from '../../utils/formatting.js';
 import { usageTier, clampPct } from '../../utils/usage-bar.js';
-import { contextUsage, CONTEXT_WINDOWS } from '../../utils/context-usage.js';
+import { contextUsage, sessionContextWindow, CONTEXT_WINDOWS } from '../../utils/context-usage.js';
 import { setHtmlIfChanged } from '../../utils/keyed-rows.js';
 
 function cellHtml(label, pct, hasValue, ariaLabel) {
@@ -35,9 +35,8 @@ function cellHtml(label, pct, hasValue, ariaLabel) {
 // CTX number sources, in preference order:
 //   1. slice.statusline.contextWindow — authoritative from claude's
 //      statusLine hook.
-//   2. slice.lastUsage + a total from slice.contextWindow (the last `result`'s
-//      modelUsage — what --print mode actually reports), else usage.contextWindow
-//      (guessed from the model id, until this session's first result).
+//   2. slice.lastUsage + the window the last `result` reported for its model,
+//      else usage.contextWindow (guessed from the model id).
 //
 // `dom` is session-view's per-mount DOM object; needs `.meter` (the region to
 // render into) and `.composer` (so tapping the strip can restore composer
@@ -49,8 +48,7 @@ export function renderMeterStrip(dom, sessionId) {
   const sl = slice?.statusline ?? null;
   const u = slice?.lastUsage ?? null;
   const cu = contextUsage(sl, u, {
-    fallbackTotal: slice?.contextWindow || usage.get().contextWindow || CONTEXT_WINDOWS._default,
-    retagTo1M: usage.get().projectContextWindow === 1_000_000,
+    fallbackTotal: sessionContextWindow(slice) || usage.get().contextWindow || CONTEXT_WINDOWS._default,
   });
   const ctxKnown = cu.known;
   const ctxUsed = cu.used, ctxTotal = cu.total, ctxPct = clampPct(cu.pct);
@@ -120,10 +118,7 @@ export function renderMeterStrip(dom, sessionId) {
       <div class="meter-breakdown-inner">${breakdownContent}</div>
     </div>
   `;
-  // paint() runs this on every store tick — every streamed token mid-turn. Replacing the
-  // button that often means a real tap's touchstart and touchend land on different nodes,
-  // and the browser never synthesizes the click. The handlers below read state live, so
-  // the nodes they're already bound to stay correct when the markup is unchanged.
+  // A rebuild between touchstart and touchend drops the tap, and paint() runs per streamed token
   if (!setHtmlIfChanged(region, html)) return;
   const btn = region.querySelector('.meter');
   const bd = region.querySelector('.meter-breakdown');

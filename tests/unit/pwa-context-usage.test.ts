@@ -7,7 +7,7 @@ describe('contextUsage', () => {
   it('uses statusline when present (authoritative)', () => {
     const sl = { model: { id: 'claude-opus-4-8', display_name: 'Opus 4.8' },
       contextWindow: { context_window_size: 200000, total_input_tokens: 30000, total_output_tokens: 10000 } };
-    const r = contextUsage(sl, null, { fallbackTotal: 999, retagTo1M: false });
+    const r = contextUsage(sl, null, { fallbackTotal: 999 });
     expect(r.known).toBe(true);
     expect(r.total).toBe(200000);
     expect(r.used).toBe(40000);
@@ -18,7 +18,7 @@ describe('contextUsage', () => {
 
   it('falls back to lastUsage with the given fallbackTotal', () => {
     const lu = { inputTokens: 100, outputTokens: 50, cacheCreate: 0, cacheRead: 0, model: 'claude-opus-4-8' };
-    const r = contextUsage(null, lu, { fallbackTotal: 200000, retagTo1M: false });
+    const r = contextUsage(null, lu, { fallbackTotal: 200000 });
     expect(r.known).toBe(true);
     expect(r.used).toBe(150);
     expect(r.total).toBe(200000);
@@ -26,14 +26,15 @@ describe('contextUsage', () => {
     expect(r.modelDisplay).toBe('Opus 4.8');
   });
 
-  it('retags the fallback model to [1m] when retagTo1M', () => {
-    const lu = { inputTokens: 1, outputTokens: 1, cacheCreate: 0, cacheRead: 0, model: 'claude-opus-4-8' };
-    const r = contextUsage(null, lu, { fallbackTotal: 1000000, retagTo1M: true });
-    expect(r.modelDisplay).toBe('Opus 4.8 (1M)');
+  it('labels a model (1M) only when its window is 1M and its default is not', () => {
+    const lu = (model: string) => ({ inputTokens: 1, outputTokens: 1, cacheCreate: 0, cacheRead: 0, model });
+    expect(contextUsage(null, lu('claude-opus-4-8'), { fallbackTotal: 1000000 }).modelDisplay).toBe('Opus 4.8 (1M)');
+    expect(contextUsage(null, lu('claude-haiku-4-5-20251001'), { fallbackTotal: 200000 }).modelDisplay).toBe('Haiku 4.5');
+    expect(contextUsage(null, lu('claude-opus-5-5'), { fallbackTotal: 1000000 }).modelDisplay).toBe('Opus 5.5');
   });
 
   it('returns known:false with zeros when neither source is present', () => {
-    const r = contextUsage(null, null, { fallbackTotal: 200000, retagTo1M: false });
+    const r = contextUsage(null, null, { fallbackTotal: 200000 });
     expect(r.known).toBe(false);
     expect(r.used).toBe(0);
     expect(r.total).toBe(200000);

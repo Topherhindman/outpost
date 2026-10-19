@@ -72,9 +72,7 @@ function emptySlice(id, meta = {}) {
     pendingDefaultPush: false,
     statusline:         null,
     lastUsage:          null,
-    // The session's real context window, from the last `result`'s modelUsage. Per-slice
-    // because two live sessions can run models with different windows.
-    contextWindow:      null,
+    contextWindowByModel: null,
   };
 }
 
@@ -525,9 +523,10 @@ function makeSliceApi(id) {
       store.set((s) =>
         withSlice(s, id, (slice) => (slice.lastUsage === u ? slice : { ...slice, lastUsage: u })));
     },
-    setContextWindow(n) {
+    setContextWindow(model, n) {
       store.set((s) =>
-        withSlice(s, id, (slice) => (slice.contextWindow === n ? slice : { ...slice, contextWindow: n })));
+        withSlice(s, id, (slice) => (slice.contextWindowByModel?.[model] === n ? slice
+          : { ...slice, contextWindowByModel: { ...slice.contextWindowByModel, [model]: n } })));
     },
     mapTranscript(fn) {
       const sl = store.get().sessionsById.get(id);

@@ -8,7 +8,7 @@ import { subagents } from '../../state/subagents.js';
 import { usage } from '../../state/usage.js';
 import { nav } from '../../state/nav.js';
 import { escapeHtml } from '../../util.js';
-import { contextUsage } from '../../utils/context-usage.js';
+import { contextUsage, sessionContextWindow } from '../../utils/context-usage.js';
 import { reconcileKeyedRows, resetKeyedRows } from '../../utils/keyed-rows.js';
 import { sortedTodoEntries, todoProvenanceText } from '../todos-core.js';
 import { subagentCardHtml } from '../agents-sheet/cards.js';
@@ -47,8 +47,7 @@ function infoCardHtml(sessionId, mcpServers) {
   const slice = sessions.getSlice(sessionId);
   const sl = slice?.statusline ?? null;
   const cu = contextUsage(sl, slice?.lastUsage ?? null, {
-    fallbackTotal: slice?.contextWindow || usage.get().contextWindow || undefined,
-    retagTo1M: usage.get().projectContextWindow === 1_000_000,
+    fallbackTotal: sessionContextWindow(slice) || usage.get().contextWindow || undefined,
   });
   // Statusline is authoritative, but doesn't fire in --print mode / before the
   // first hook. Fall back to the model/tokens seeded from message_start (same
